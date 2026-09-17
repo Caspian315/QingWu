@@ -193,7 +193,10 @@ pub fn run() {
             app.handle().plugin(tauri_plugin_autostart::init(
                 tauri_plugin_autostart::MacosLauncher::LaunchAgent, None,
             ))?;
-            if app.notification().permission_state()? == PermissionState::Unknown {
+            if matches!(
+                app.notification().permission_state()?,
+                PermissionState::Prompt | PermissionState::PromptWithRationale
+            ) {
                 let _ = app.notification().request_permission()?;
             }
             let sidecar = SidecarState {
