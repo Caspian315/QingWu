@@ -1,0 +1,25 @@
+# Module owners route reviews; every pull request still requires cross-review.
+
+# React UI, interaction and browser demo
+/src/ @wjgheh
+/index.html @wjgheh
+/vite.config.ts @wjgheh
+/package.json @wjgheh
+/package-lock.json @wjgheh
+
+# Python core, workflow templates and schemas
+/python/ @URNR0
+/templates/ @URNR0 @wjgheh
+/schemas/ @URNR0
+/pyproject.toml @URNR0
+
+# Tauri, Rust, CI and release tooling
+/src-tauri/ @Caspian315
+/.github/workflows/ @Caspian315
+/scripts/ @Caspian315 @URNR0
+
+# Shared governance, security and product documentation
+/README.md @Caspian315 @URNR0 @wjgheh
+/docs/ @Caspian315 @URNR0 @wjgheh
+/SECURITY.md @Caspian315 @URNR0 @wjgheh
+/CONTRIBUTING.md @Caspian315 @URNR0 @wjgheh
