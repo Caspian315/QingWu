@@ -129,10 +129,6 @@ scripts/                sidecar 打包脚本
 
 架构和安全理由见 [架构说明](docs/architecture.md)，模板字段见 [模板开发指南](docs/template-development.md)。
 
-## 团队协作
-
-2–3 人团队在开始分工前，请共同阅读 [团队对齐、现状与分工](docs/team-handoff.md)。其中区分了已经验证的能力、尚未完成的发布门槛，并给出了两人/三人分工、八周执行计划、GitHub 工作流和完成定义。
-
 ## 参与贡献
 
 请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。不要把真实姓名、手机号、学号、票据、支付凭证、API Key 或组织内部材料提交到 issue、测试 fixture 或仓库。
