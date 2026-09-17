@@ -70,3 +70,49 @@ def test_manual_version_and_locked_paragraph_survive_regeneration(service: Qingw
     assert regenerated["version"] == 3
     assert "这是一段必须保留的人工说明。" in regenerated["body"]
     assert regenerated["locked_blocks"][0]["text"] == "这是一段必须保留的人工说明。"
+
+
+def test_conflicting_locations_are_not_auto_confirmed(service: QingwuService, monkeypatch):
+    affair = service.affair_create({"template_id": "activity-organization", "title": "地点冲突测试"})
+
+    class FakeProvider:
+        def __init__(self, api_key: str, model: str = "gpt-5.4-mini", timeout: int = 90):
+            self.model = model
+
+        def structured(self, **kwargs):
+            return {
+                "candidates": [],
+                "conflicts": [{
+                    "key": "location",
+                    "values": ["大学生活动中心 203", "图书馆报告厅"],
+                    "reason": "同一来源出现两个不同地点",
+                }],
+            }
+
+    monkeypatch.setattr("qingwu_core.service.OpenAIProvider", FakeProvider)
+    extracted = service.fact_extract({
+        "affair_id": affair["id"],
+        "source_text": "请于大学生活动中心 203 集合；另一份通知写的是图书馆报告厅。",
+        "api_key": "sk-test-not-real",
+    })
+    location = extracted["facts"]["location"]
+    assert location["status"] == "conflicting"
+    assert location["value"] is None
+    assert location["conflict"]["values"] == ["大学生活动中心 203", "图书馆报告厅"]
+
+    service.fact_confirm({"affair_id": affair["id"], "values": {
+        "activity_name": "十月主题团日活动", "activity_date": "2026-10-18",
+        "start_time": "18:00", "audience": "计算机 2401 班全体同学",
+        "contact_person": "张同学", "organizer": "计算机 2401 团支部",
+    }})
+    latest = service.affair_open({"id": affair["id"]})
+    assert latest["facts"]["location"]["status"] == "conflicting"
+
+    draft = service.draft_generate({"affair_id": affair["id"], "document_id": "notice_full"})
+    assert draft["status"] == "missing_facts"
+    assert "【待填写：活动地点】" in draft["rendered_body"]
+    assert "大学生活动中心 203" not in draft["rendered_body"]
+    assert "图书馆报告厅" not in draft["rendered_body"]
+    with pytest.raises(ConflictError):
+        service.draft_mark_ready({"id": draft["id"]})
+
