@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Facts } from "./App";
+import { Facts, Overview } from "./App";
 import { call } from "./lib/api";
 import type { Affair, FactField } from "./types";
 
@@ -126,5 +126,21 @@ describe("facts confirmation", () => {
       },
     }));
     await waitFor(() => expect(screen.getByText("当前所有已填写事实均已确认。")).toBeInTheDocument());
+  });
+});
+
+describe("affair overview", () => {
+  afterEach(cleanup);
+
+  it("labels task progress and counts only confirmed required facts", () => {
+    const affair = affairFixture();
+    affair.facts.activity_name = { ...affair.facts.activity_name, value: "示例活动", status: "confirmed" };
+    affair.facts.notes = { ...affair.facts.notes, value: "可选说明", status: "confirmed" };
+
+    render(<Overview affair={affair} progress={40} onNavigate={vi.fn()} />);
+
+    expect(screen.getByLabelText("任务进度 40%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /1 \/ 2 个必填事实/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /2 \/ 2 个必填事实/ })).not.toBeInTheDocument();
   });
 });
