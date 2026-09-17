@@ -1,0 +1,185 @@
+schema_version: 1
+id: activity-organization
+version: 1.0.0
+title: 活动组织
+description: 从前期通知、提醒和执行，到总结与归档的通用活动模板。
+license: MIT
+min_app_version: 0.1.0
+
+facts:
+  - key: activity_name
+    label: 活动名称
+    type: text
+    required: true
+    protected: true
+    placeholder: 例如：十月主题团日活动
+  - key: activity_theme
+    label: 活动主题
+    type: text
+    required: false
+    protected: false
+  - key: activity_date
+    label: 活动日期
+    type: date
+    required: true
+    protected: true
+  - key: start_time
+    label: 开始时间
+    type: time
+    required: true
+    protected: true
+  - key: end_time
+    label: 结束时间
+    type: time
+    required: false
+    protected: true
+  - key: location
+    label: 活动地点
+    type: text
+    required: true
+    protected: true
+  - key: audience
+    label: 面向对象
+    type: text
+    required: true
+    protected: true
+  - key: signup_method
+    label: 报名方式
+    type: textarea
+    required: false
+    protected: true
+  - key: signup_deadline
+    label: 报名截止时间
+    type: datetime
+    required: false
+    protected: true
+  - key: contact_person
+    label: 联系人
+    type: text
+    required: true
+    protected: true
+  - key: contact_method
+    label: 联系方式
+    type: text
+    required: false
+    protected: true
+    sensitive: true
+  - key: organizer
+    label: 主办或承办组织
+    type: text
+    required: true
+    protected: true
+  - key: notes
+    label: 注意事项
+    type: textarea
+    required: false
+    protected: false
+
+stages:
+  - { id: prepare, title: 准备 }
+  - { id: announce, title: 通知 }
+  - { id: remind, title: 提醒 }
+  - { id: execute, title: 执行 }
+  - { id: summarize, title: 总结 }
+  - { id: archive, title: 归档 }
+
+tasks:
+  - { id: confirm_basics, title: 确认时间、地点与负责人, stage: prepare, relative_to: activity_date, offset_minutes: -10080, reminders: [1440] }
+  - { id: publish_notice, title: 发布首次通知, stage: announce, relative_to: signup_deadline, offset_minutes: -4320, reminders: [120] }
+  - { id: publish_reminder, title: 发布截止前提醒, stage: remind, relative_to: signup_deadline, offset_minutes: -1440, reminders: [120] }
+  - { id: prepare_signin, title: 准备签到材料, stage: prepare, relative_to: activity_date, offset_minutes: -1440, reminders: [120] }
+  - { id: take_photos, title: 拍摄活动照片, stage: execute, relative_to: activity_date, offset_minutes: 0, reminders: [30] }
+  - { id: collect_roster, title: 收集参与人员名单, stage: summarize, relative_to: activity_date, offset_minutes: 240, reminders: [60] }
+  - { id: write_summary, title: 撰写活动总结, stage: summarize, relative_to: activity_date, offset_minutes: 1440, reminders: [120] }
+  - { id: archive_materials, title: 整理归档材料, stage: archive, relative_to: activity_date, offset_minutes: 2880, reminders: [120] }
+
+documents:
+  - id: notice_full
+    title: 完整群通知
+    kind: notice
+    required_facts: [activity_name, activity_date, start_time, location, audience, contact_person, organizer]
+    offline_template: |
+      各位同学：
+
+      现将{{activity_name}}有关安排通知如下：
+      一、时间：{{activity_date}} {{start_time}}
+      二、地点：{{location}}
+      三、面向对象：{{audience}}
+      四、报名方式：{{signup_method}}
+      五、截止时间：{{signup_deadline}}
+      六、注意事项：{{notes}}
+
+      如有疑问，请联系{{contact_person}}（{{contact_method}}）。
+
+      {{organizer}}
+  - id: notice_short
+    title: 简洁群通知
+    kind: notice
+    required_facts: [activity_name, activity_date, start_time, location, audience]
+    offline_template: |
+      【{{activity_name}}】活动将于{{activity_date}} {{start_time}}在{{location}}举行，面向{{audience}}。报名方式：{{signup_method}}；截止时间：{{signup_deadline}}。请大家按时参加。
+  - id: deadline_reminder
+    title: 截止前提醒
+    kind: reminder
+    required_facts: [activity_name, signup_deadline]
+    offline_template: |
+      提醒一下，{{activity_name}}报名将于{{signup_deadline}}截止，请尚未完成的同学及时提交。报名方式：{{signup_method}}。如有问题请联系{{contact_person}}。
+  - id: article_preview
+    title: 活动预告推文
+    kind: article_preview
+    required_facts: [activity_name, activity_date, start_time, location, organizer]
+    offline_template: |
+      # {{activity_name}}
+
+      ## 活动预告
+
+      {{activity_theme}}
+
+      活动将于{{activity_date}} {{start_time}}在{{location}}举行。
+
+      【图片 1：活动主题视觉图】
+
+      ## 参与方式
+
+      面向对象：{{audience}}
+
+      报名方式：{{signup_method}}
+
+      截止时间：{{signup_deadline}}
+
+      {{organizer}}
+  - id: article_recap
+    title: 活动回顾推文
+    kind: article_recap
+    required_facts: [activity_name, activity_date, location, organizer]
+    offline_template: |
+      # {{activity_name}}活动回顾
+
+      {{activity_date}}，{{activity_name}}在{{location}}顺利开展。
+
+      【图片 1：活动现场全景】
+
+      ## 精彩瞬间
+
+      【请补充活动过程与亮点】
+
+      【图片 2：互动环节】
+
+      【图片 3：活动合影】
+
+      {{organizer}}
+
+material_slots:
+  - { id: plan, title: 活动方案, required: false, min_items: 0, max_items: 1, extensions: [.docx, .pdf], filename_keywords: [方案, 策划], output_path: materials/01-活动方案 }
+  - { id: signin, title: 签到表, required: true, min_items: 1, max_items: 1, extensions: [.xlsx, .csv, .pdf, .jpg, .png], filename_keywords: [签到], output_path: materials/02-签到表 }
+  - { id: photos, title: 活动照片, required: true, min_items: 3, max_items: null, extensions: [.jpg, .jpeg, .png], filename_keywords: [活动, 合影, 现场], output_path: materials/03-活动照片 }
+  - { id: roster, title: 参与人员名单, required: true, min_items: 1, max_items: 1, extensions: [.xlsx, .csv, .pdf, .docx], filename_keywords: [名单, 人员], output_path: materials/04-参与名单 }
+  - { id: summary, title: 活动总结, required: true, min_items: 1, max_items: 1, extensions: [.docx, .pdf], filename_keywords: [总结, 汇报], output_path: materials/05-活动总结 }
+  - { id: other, title: 其他证明材料, required: false, min_items: 0, max_items: null, extensions: [.docx, .pdf, .xlsx, .jpg, .jpeg, .png], filename_keywords: [], output_path: materials/99-其他 }
+
+groups: []
+
+archive:
+  folder_name: 活动归档
+  include_checklist: true
+  include_manifest: true

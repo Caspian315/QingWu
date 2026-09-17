@@ -1,0 +1,81 @@
+schema_version: 1
+id: reimbursement
+version: 1.0.0
+title: 报销
+description: 管理报销项目、票据、支付凭证与最终提交说明。
+license: MIT
+min_app_version: 0.1.0
+
+facts:
+  - { key: project_name, label: 项目名称, type: text, required: true, protected: true }
+  - { key: handler, label: 经办人, type: text, required: true, protected: true, sensitive: true }
+  - { key: organization, label: 组织或部门, type: text, required: true, protected: true }
+  - { key: description, label: 报销说明, type: textarea, required: true, protected: false }
+  - { key: deadline, label: 截止时间, type: datetime, required: false, protected: true }
+  - { key: contact_method, label: 联系方式, type: text, required: false, protected: true, sensitive: true }
+
+stages:
+  - { id: collect, title: 收集 }
+  - { id: verify, title: 核对 }
+  - { id: submit, title: 提交 }
+  - { id: archive, title: 归档 }
+
+tasks:
+  - { id: collect_receipts, title: 收集票据和支付凭证, stage: collect, relative_to: deadline, offset_minutes: -4320, reminders: [1440] }
+  - { id: verify_pairs, title: 核对每笔报销材料, stage: verify, relative_to: deadline, offset_minutes: -1440, reminders: [120] }
+  - { id: submit_package, title: 提交报销材料, stage: submit, relative_to: deadline, offset_minutes: 0, reminders: [120] }
+  - { id: archive_package, title: 保存报销归档, stage: archive, relative_to: deadline, offset_minutes: 1440, reminders: [120] }
+
+documents:
+  - id: receipt_request
+    title: 收集票据通知
+    kind: notice
+    required_facts: [project_name, handler, organization]
+    offline_template: |
+      各位同学：
+
+      现开始收集{{project_name}}相关报销材料。请提供发票或票据、对应支付凭证，并注明费用用途和金额。截止时间为{{deadline}}。
+
+      如有问题，请联系经办人{{handler}}（{{contact_method}}）。
+
+      {{organization}}
+  - id: missing_proof_reminder
+    title: 补充凭证提醒
+    kind: reminder
+    required_facts: [project_name, handler]
+    offline_template: |
+      你好，{{project_name}}的报销材料中仍有票据或支付凭证需要补充。麻烦核对后尽快发给经办人{{handler}}，谢谢！
+  - id: completion_note
+    title: 材料收齐确认
+    kind: reminder
+    required_facts: [project_name]
+    offline_template: |
+      {{project_name}}报销材料已收齐并完成初步核对，感谢大家配合。
+  - id: submission_note
+    title: 向上级提交说明
+    kind: submission_note
+    required_facts: [project_name, handler, organization, description]
+    offline_template: |
+      现提交{{project_name}}报销材料，相关票据、支付凭证及费用说明已按项目整理。报销说明：{{description}}。经办人：{{handler}}；提交单位：{{organization}}。
+
+material_slots:
+  - { id: overview, title: 报销汇总表, required: false, min_items: 0, max_items: 1, extensions: [.xlsx, .csv, .pdf, .docx], filename_keywords: [报销, 汇总], output_path: materials/00-报销汇总 }
+
+groups:
+  - id: expense_item
+    title: 报销项目
+    repeatable: true
+    min_items: 1
+    facts:
+      - { key: purpose, label: 用途, type: text, required: true, protected: false }
+      - { key: expense_date, label: 日期, type: date, required: true, protected: true }
+      - { key: amount, label: 金额, type: currency, required: true, protected: true, sensitive: true }
+      - { key: notes, label: 补充说明, type: textarea, required: false, protected: false }
+    material_slots:
+      - { id: invoice, title: 发票或票据, required: true, min_items: 1, max_items: null, extensions: [.pdf, .jpg, .jpeg, .png], filename_keywords: [发票, 票据], output_path: 发票 }
+      - { id: payment_proof, title: 支付凭证, required: true, min_items: 1, max_items: null, extensions: [.pdf, .jpg, .jpeg, .png], filename_keywords: [支付, 付款, 凭证], output_path: 支付凭证 }
+
+archive:
+  folder_name: 报销归档
+  include_checklist: true
+  include_manifest: true

@@ -1,0 +1,93 @@
+schema_version: 1
+id: material-collection
+version: 1.0.0
+title: 材料收集
+description: 用于截图、报名信息、证明材料和汇总表的通知、催交与归档。
+license: MIT
+min_app_version: 0.1.0
+
+facts:
+  - { key: collection_name, label: 收集事项, type: text, required: true, protected: true }
+  - { key: audience, label: 收集对象, type: text, required: true, protected: true }
+  - { key: requirements, label: 材料要求, type: textarea, required: true, protected: false }
+  - { key: naming_rule, label: 文件命名要求, type: text, required: false, protected: true }
+  - { key: submission_method, label: 提交方式, type: textarea, required: true, protected: true }
+  - { key: deadline, label: 截止时间, type: datetime, required: true, protected: true }
+  - { key: contact_person, label: 联系人, type: text, required: true, protected: true }
+  - { key: contact_method, label: 联系方式, type: text, required: false, protected: true, sensitive: true }
+  - { key: organizer, label: 组织或部门, type: text, required: true, protected: true }
+  - { key: notes, label: 补充说明, type: textarea, required: false, protected: false }
+
+stages:
+  - { id: prepare, title: 准备 }
+  - { id: collect, title: 收集 }
+  - { id: remind, title: 催交 }
+  - { id: verify, title: 核对 }
+  - { id: archive, title: 归档 }
+
+tasks:
+  - { id: confirm_requirements, title: 确认材料要求与名单, stage: prepare, relative_to: deadline, offset_minutes: -10080, reminders: [1440] }
+  - { id: publish_notice, title: 发布首次收集通知, stage: collect, relative_to: deadline, offset_minutes: -4320, reminders: [120] }
+  - { id: remind_pending, title: 提醒未完成人员, stage: remind, relative_to: deadline, offset_minutes: -1440, reminders: [120] }
+  - { id: verify_materials, title: 核对材料完整性, stage: verify, relative_to: deadline, offset_minutes: 60, reminders: [30] }
+  - { id: archive_materials, title: 整理并归档材料, stage: archive, relative_to: deadline, offset_minutes: 240, reminders: [60] }
+
+documents:
+  - id: collection_notice
+    title: 首次收集通知
+    kind: notice
+    required_facts: [collection_name, audience, requirements, submission_method, deadline, contact_person]
+    offline_template: |
+      各位同学：
+
+      现需收集{{collection_name}}，具体要求如下：
+      一、收集对象：{{audience}}
+      二、材料要求：{{requirements}}
+      三、命名要求：{{naming_rule}}
+      四、提交方式：{{submission_method}}
+      五、截止时间：{{deadline}}
+
+      请大家按要求及时提交。如有问题，请联系{{contact_person}}（{{contact_method}}）。
+
+      {{organizer}}
+  - id: collection_short
+    title: 简短版通知
+    kind: notice
+    required_facts: [collection_name, requirements, submission_method, deadline]
+    offline_template: |
+      【{{collection_name}}】请大家按{{requirements}}准备材料，于{{deadline}}前通过{{submission_method}}提交。命名要求：{{naming_rule}}。
+  - id: deadline_reminder
+    title: 截止前提醒
+    kind: reminder
+    required_facts: [collection_name, deadline]
+    offline_template: |
+      提醒一下，{{collection_name}}将于{{deadline}}截止，请尚未完成的同学尽快提交。感谢配合！
+  - id: overdue_reminder
+    title: 已逾期提醒
+    kind: reminder
+    required_facts: [collection_name, deadline, contact_person]
+    offline_template: |
+      {{collection_name}}已于{{deadline}}截止，目前仍有部分材料未收齐。请尚未提交或材料不完整的同学尽快补交，并联系{{contact_person}}说明情况。
+  - id: direct_message
+    title: 私聊催交话术
+    kind: direct_message
+    required_facts: [collection_name, deadline]
+    offline_template: |
+      你好，打扰一下。{{collection_name}}的材料目前还没有确认收齐，截止时间是{{deadline}}。麻烦你有空时检查并补充一下，谢谢！
+  - id: completion_note
+    title: 完成确认话术
+    kind: reminder
+    required_facts: [collection_name]
+    offline_template: |
+      {{collection_name}}已收齐并完成核对，感谢大家的配合！
+
+material_slots:
+  - { id: submissions, title: 收集材料, required: true, min_items: 1, max_items: null, extensions: [.docx, .pdf, .xlsx, .csv, .jpg, .jpeg, .png, .zip], filename_keywords: [], output_path: materials/提交材料 }
+  - { id: roster, title: 汇总名单, required: false, min_items: 0, max_items: 1, extensions: [.xlsx, .csv, .pdf], filename_keywords: [名单, 汇总], output_path: materials/汇总名单 }
+
+groups: []
+
+archive:
+  folder_name: 材料收集归档
+  include_checklist: true
+  include_manifest: true

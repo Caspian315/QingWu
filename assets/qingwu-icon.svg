@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">轻务 Qingwu 应用图标</title>
+  <desc id="desc">深绿色圆角方形中的浅色 Q 字与叶片</desc>
+  <defs>
+    <linearGradient id="bg" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1f7a58"/>
+      <stop offset="1" stop-color="#103e2e"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="150" y1="110" x2="360" y2="398" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f2fff5"/>
+      <stop offset="1" stop-color="#b9e2c4"/>
+    </linearGradient>
+  </defs>
+  <rect x="28" y="28" width="456" height="456" rx="116" fill="url(#bg)"/>
+  <path fill="url(#mark)" fill-rule="evenodd" d="M252 111c-87.8 0-151 61.8-151 148.5S164.2 408 252 408c31.5 0 59.7-8 83.2-22.7l46.4 42.5a23 23 0 0 0 31-34l-43.9-40.1c21.6-25.4 34.3-57.8 34.3-94.2C403 172.8 339.8 111 252 111Zm0 55c54.6 0 94 38.2 94 93.5 0 20.9-5.7 39.2-15.9 54.1l-35.7-32.7a23 23 0 0 0-31 34l28.5 26.1c-11.8 7.7-25.5 12-39.9 12-54.6 0-94-38.2-94-93.5S197.4 166 252 166Z"/>
+  <path d="M314 93c27-32 67-44 105-35-1 39-19 74-54 92-23 12-48 13-70 6 2-23 8-43 19-63Z" fill="#8bd39c"/>
+  <path d="M310 151c25-32 54-56 88-75" fill="none" stroke="#dff5e4" stroke-width="12" stroke-linecap="round"/>
+</svg>

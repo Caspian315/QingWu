@@ -1,0 +1,59 @@
+name: Bug 报告
+description: 报告可复现的错误、事实不一致或构建问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: 请勿上传真实姓名、学号、手机号、票据、聊天记录或 API Key。请使用虚构数据复现。
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景
+      description: 当时正在处理哪类事务？
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 创建……
+        2. 填写……
+        3. 点击……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 轻务版本或提交
+      placeholder: v0.1.0-dev / commit SHA
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      placeholder: Windows 11 x64，浏览器演示版或 Tauri 桌面版
+  - type: dropdown
+    id: ai
+    attributes:
+      label: 是否启用了 AI
+      options: ["否", "是", "不确定"]
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我已确认附件和文本不包含真实个人信息、组织内部材料或密钥
+          required: true

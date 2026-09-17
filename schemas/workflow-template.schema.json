@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qingwu.dev/schemas/workflow-template-v1.json",
+  "title": "Qingwu workflow template",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "version", "title", "facts", "stages", "tasks", "documents", "material_slots", "groups", "archive"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "title": {"type": "string", "minLength": 1, "maxLength": 80},
+    "description": {"type": "string", "maxLength": 500},
+    "license": {"type": "string", "default": "MIT"},
+    "min_app_version": {"type": "string"},
+    "facts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/fact"}
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+          "title": {"type": "string"}
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "stage"],
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "stage": {"type": "string"},
+          "relative_to": {"type": ["string", "null"]},
+          "offset_minutes": {"type": "integer"},
+          "reminders": {"type": "array", "items": {"type": "integer"}}
+        }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/document"}
+    },
+    "material_slots": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/materialSlot"}
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "repeatable", "min_items", "facts", "material_slots"],
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "repeatable": {"type": "boolean"},
+          "min_items": {"type": "integer", "minimum": 0},
+          "facts": {"type": "array", "items": {"$ref": "#/$defs/fact"}},
+          "material_slots": {"type": "array", "items": {"$ref": "#/$defs/materialSlot"}}
+        }
+      }
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "folder_name": {"type": "string"},
+        "include_checklist": {"type": "boolean"},
+        "include_manifest": {"type": "boolean"}
+      }
+    }
+  },
+  "$defs": {
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "type", "required"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]*$"},
+        "label": {"type": "string"},
+        "type": {"enum": ["text", "textarea", "date", "time", "datetime", "integer", "decimal", "currency", "select", "checkbox"]},
+        "required": {"type": "boolean"},
+        "protected": {"type": "boolean", "default": false},
+        "sensitive": {"type": "boolean", "default": false},
+        "options": {"type": "array", "items": {"type": "string"}},
+        "placeholder": {"type": "string"},
+        "help": {"type": "string"}
+      }
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "kind", "required_facts", "offline_template"],
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "kind": {"enum": ["notice", "reminder", "direct_message", "article_preview", "article_recap", "submission_note"]},
+        "required_facts": {"type": "array", "items": {"type": "string"}},
+        "offline_template": {"type": "string"}
+      }
+    },
+    "materialSlot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "required", "min_items", "max_items", "extensions", "output_path"],
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "required": {"type": "boolean"},
+        "min_items": {"type": "integer", "minimum": 0},
+        "max_items": {"type": ["integer", "null"], "minimum": 1},
+        "extensions": {"type": "array", "items": {"type": "string", "pattern": "^\\.[A-Za-z0-9]+$"}},
+        "filename_keywords": {"type": "array", "items": {"type": "string"}},
+        "output_path": {"type": "string"}
+      }
+    }
+  }
+}
