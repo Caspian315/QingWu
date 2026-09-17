@@ -1,0 +1,130 @@
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Facts } from "./App";
+import { call } from "./lib/api";
+import type { Affair, FactField } from "./types";
+
+vi.mock("./lib/api", () => ({
+  autostartStatus: vi.fn(async () => false),
+  call: vi.fn(async () => ({})),
+  chooseArchivePath: vi.fn(async () => null),
+  chooseMaterialFiles: vi.fn(async () => []),
+  chooseMaterialFolder: vi.fn(async () => []),
+  chooseStyleFiles: vi.fn(async () => []),
+  configuredModel: vi.fn(() => "gpt-5.4-mini"),
+  credentialStatus: vi.fn(async () => false),
+  deleteApiKey: vi.fn(async () => undefined),
+  isDesktop: vi.fn(() => false),
+  listenForMaterialDrops: vi.fn(async () => () => undefined),
+  pasteClipboardImage: vi.fn(async () => ""),
+  saveApiKey: vi.fn(async () => undefined),
+  saveConfiguredModel: vi.fn(),
+  setAutostart: vi.fn(async () => undefined),
+}));
+
+const mockedCall = vi.mocked(call);
+
+function fact(key: string, label: string, required: boolean, type = "text"): FactField {
+  return { key, label, required, type, protected: true, sensitive: false, value: null, status: "missing" };
+}
+
+function affairFixture(): Affair {
+  return {
+    id: "affair_test",
+    title: "事实确认测试",
+    template_id: "activity-organization",
+    template_version: "1.0.0",
+    created_at: "2026-09-17T00:00:00Z",
+    updated_at: "2026-09-17T00:00:00Z",
+    current_fact_version: 1,
+    ai_used: false,
+    source_text: "",
+    facts: {
+      activity_name: fact("activity_name", "活动名称", true),
+      location: fact("location", "活动地点", true),
+      notes: fact("notes", "注意事项", false, "textarea"),
+    },
+    tasks: [],
+    drafts: [],
+    materials: [],
+    recipients: [],
+    group_instances: [],
+    template: {
+      id: "activity-organization",
+      version: "1.0.0",
+      title: "活动组织",
+      description: "测试模板",
+      facts: [],
+      stages: [],
+      documents: [],
+      material_slots: [],
+      groups: [],
+    },
+  };
+}
+
+function FactsHarness() {
+  const [affair, setAffair] = useState(affairFixture);
+
+  async function refresh() {
+    const [, params = {}] = mockedCall.mock.calls.at(-1) ?? [];
+    const submitted = (params.values ?? (params.key ? { [String(params.key)]: params.value } : {})) as Record<string, string>;
+    setAffair((current) => ({
+      ...current,
+      current_fact_version: current.current_fact_version + 1,
+      facts: Object.fromEntries(Object.entries(current.facts).map(([key, field]) => [
+        key,
+        key in submitted ? { ...field, value: submitted[key], status: "confirmed" as const } : field,
+      ])),
+    }));
+  }
+
+  return <Facts affair={affair} onChanged={refresh} show={vi.fn()} />;
+}
+
+describe("facts confirmation", () => {
+  beforeEach(() => mockedCall.mockClear());
+  afterEach(cleanup);
+
+  it("preserves other unsaved inputs after confirming one fact", async () => {
+    render(<FactsHarness />);
+    fireEvent.change(screen.getByLabelText(/活动名称/), { target: { value: "示例活动" } });
+    fireEvent.change(screen.getByLabelText(/活动地点/), { target: { value: "尚未保存的地点" } });
+
+    const nameRow = screen.getByLabelText(/活动名称/).closest(".fact-row");
+    expect(nameRow).not.toBeNull();
+    fireEvent.click(within(nameRow as HTMLElement).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(mockedCall).toHaveBeenCalledWith("fact.confirm", {
+      affair_id: "affair_test",
+      key: "activity_name",
+      value: "示例活动",
+    }));
+    expect(screen.getByLabelText(/活动地点/)).toHaveValue("尚未保存的地点");
+  });
+
+  it("requires all mandatory facts and confirms only non-empty pending values", async () => {
+    render(<FactsHarness />);
+    const confirmAll = screen.getByRole("button", { name: "确认全部已填写事实" });
+
+    fireEvent.change(screen.getByLabelText(/活动名称/), { target: { value: "示例活动" } });
+    expect(confirmAll).toBeDisabled();
+    expect(screen.getByText("请先填写必填事实：活动地点")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/活动地点/), { target: { value: "示例地点" } });
+    fireEvent.change(screen.getByLabelText(/注意事项/), { target: { value: "请提前到场" } });
+    expect(confirmAll).toBeEnabled();
+    fireEvent.click(confirmAll);
+
+    await waitFor(() => expect(mockedCall).toHaveBeenCalledWith("fact.confirm", {
+      affair_id: "affair_test",
+      values: {
+        activity_name: "示例活动",
+        location: "示例地点",
+        notes: "请提前到场",
+      },
+    }));
+    await waitFor(() => expect(screen.getByText("当前所有已填写事实均已确认。")).toBeInTheDocument());
+  });
+});
