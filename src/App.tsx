@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import {
   Archive, Bell, Bot, Check, CheckCircle2, ChevronRight, CircleAlert, ClipboardList,
   Clock3, Copy, FileArchive, FileText, FolderInput, Home, KeyRound, Layers3, LoaderCircle,
@@ -172,16 +172,75 @@ function Overview({ affair, progress, onNavigate }: { affair: Affair; progress: 
   return <div className="page-stack"><section className="hero-card"><div><p className="kicker">{affair.template.title}</p><h2>{affair.title}</h2><p>{affair.template.description}</p></div><div className="progress-ring" style={{ "--progress": `${progress * 3.6}deg` } as CSSProperties}><span>{progress}%</span></div></section><div className="stat-grid"><button className="stat-card" onClick={() => onNavigate("facts")}><ClipboardList /><span><strong>{confirmed}</strong> / {required} 个必填事实</span><small>点击继续确认</small></button><button className="stat-card" onClick={() => onNavigate("drafts")}><FileText /><span><strong>{readyDrafts}</strong> 篇可复制文案</span><small>{affair.drafts.length} 篇已有草稿</small></button><button className="stat-card" onClick={() => onNavigate("timeline")}><Clock3 /><span><strong>{affair.tasks.filter((task) => task.completed).length}</strong> / {affair.tasks.length} 项待办完成</span><small>下一项：{nextTask?.title ?? "全部完成"}</small></button><button className="stat-card" onClick={() => onNavigate("materials")}><FolderInput /><span><strong>{affair.materials.length}</strong> 份材料</span><small>检查槽位与文件状态</small></button></div><section className="panel"><div className="panel-head"><div><span className="eyebrow">推荐下一步</span><h3>{confirmed < required ? "先把事实底稿确认完整" : affair.drafts.length === 0 ? "基于事实生成第一份通知" : nextTask ? nextTask.title : "检查并导出归档"}</h3></div><button className="primary" onClick={() => onNavigate(confirmed < required ? "facts" : affair.drafts.length === 0 ? "drafts" : nextTask ? "timeline" : "archive")}>继续处理<ChevronRight size={17} /></button></div><p className="muted">事实变化时，轻务只会让引用相关字段的草稿过期；旧版本会继续保留。</p></section></div>;
 }
 
-function Facts({ affair, onChanged, show }: { affair: Affair; onChanged: () => Promise<void>; show: (kind: "success" | "error", text: string) => void }) {
+export function Facts({ affair, onChanged, show }: { affair: Affair; onChanged: () => Promise<void>; show: (kind: "success" | "error", text: string) => void }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [source, setSource] = useState(affair.source_text || "");
   const [extracting, setExtracting] = useState(false);
-  useEffect(() => setValues(Object.fromEntries(Object.entries(affair.facts).map(([key, field]) => [key, field.value == null ? "" : String(field.value)]))), [affair.id, affair.current_fact_version]);
+  const [confirmingAll, setConfirmingAll] = useState(false);
+  const dirtyKeys = useRef(new Set<string>());
+  const loadedAffairId = useRef(affair.id);
+
+  useEffect(() => {
+    const freshValues = Object.fromEntries(
+      Object.entries(affair.facts).map(([key, field]) => [key, field.value == null ? "" : String(field.value)]),
+    );
+    if (loadedAffairId.current !== affair.id) {
+      loadedAffairId.current = affair.id;
+      dirtyKeys.current.clear();
+      setValues(freshValues);
+      setSource(affair.source_text || "");
+      return;
+    }
+    setValues((current) => Object.fromEntries(
+      Object.entries(freshValues).map(([key, value]) => [
+        key,
+        dirtyKeys.current.has(key) ? current[key] ?? value : value,
+      ]),
+    ));
+  }, [affair.id, affair.current_fact_version]);
+
+  const fields = Object.values(affair.facts);
+  const missingRequired = fields.filter((field) => field.required && !values[field.key]?.trim());
+  const unresolvedConflicts = fields.filter((field) => field.status === "conflicting" && !dirtyKeys.current.has(field.key));
+  const confirmableEntries = fields.flatMap((field) => {
+    const value = values[field.key];
+    if (!value?.trim()) return [];
+    const matchesSavedValue = String(field.value ?? "") === value;
+    if (field.status === "confirmed" && matchesSavedValue) return [];
+    return [[field.key, value] as const];
+  });
+  const confirmableValues = Object.fromEntries(confirmableEntries);
+
+  function changeValue(key: string, value: string) {
+    dirtyKeys.current.add(key);
+    setValues((current) => ({ ...current, [key]: value }));
+  }
+
   async function update(field: FactField, confirm: boolean) {
     try {
       await call(confirm ? "fact.confirm" : "fact.update", { affair_id: affair.id, key: field.key, value: values[field.key] });
+      dirtyKeys.current.delete(field.key);
       await onChanged(); show("success", confirm ? `“${field.label}”已确认` : `“${field.label}”已保存，发布前还需确认`);
     } catch (error) { show("error", error instanceof Error ? error.message : String(error)); }
+  }
+  async function confirmAll() {
+    if (missingRequired.length) {
+      show("error", `请先填写必填事实：${missingRequired.map((field) => field.label).join("、")}`);
+      return;
+    }
+    if (unresolvedConflicts.length) {
+      show("error", `请先修改冲突事实：${unresolvedConflicts.map((field) => field.label).join("、")}`);
+      return;
+    }
+    if (!confirmableEntries.length) return;
+    setConfirmingAll(true);
+    try {
+      await call("fact.confirm", { affair_id: affair.id, values: confirmableValues });
+      Object.keys(confirmableValues).forEach((key) => dirtyKeys.current.delete(key));
+      await onChanged();
+      show("success", `已确认 ${confirmableEntries.length} 项事实。`);
+    } catch (error) { show("error", error instanceof Error ? error.message : String(error)); }
+    finally { setConfirmingAll(false); }
   }
   async function extract() {
     if (!source.trim()) return;
@@ -190,7 +249,46 @@ function Facts({ affair, onChanged, show }: { affair: Affair; onChanged: () => P
     catch (error) { show("error", error instanceof Error ? error.message : String(error)); }
     finally { setExtracting(false); }
   }
-  return <div className="two-column"><section className="panel sticky-card"><div className="panel-head"><div><span className="eyebrow">可选 AI 辅助</span><h3>粘贴上级通知</h3></div><Bot size={22} /></div><textarea className="source-text" value={source} onChange={(event) => setSource(event.target.value)} placeholder="粘贴群通知、聊天记录或活动要求……" /><button className="primary wide" onClick={() => void extract()} disabled={!source.trim() || extracting}>{extracting ? <LoaderCircle className="spin" /> : <Sparkles />}提取候选事实</button><p className="hint">相对日期和 AI 结果都不会自动确认。“本周六”会保留原文，必须由你核对。</p></section><section className="panel"><div className="panel-head"><div><span className="eyebrow">facts-v{affair.current_fact_version}</span><h3>事实底稿</h3></div><span className="privacy-note"><ShieldCheck size={15} />只有已确认值可进入文案</span></div><div className="fact-list">{Object.values(affair.facts).map((field) => <div className="fact-row" key={field.key}><div className="field-title"><label htmlFor={`fact-${field.key}`}>{field.label}{field.required && <em>*</em>}</label><span className={`chip ${factStatus[field.status]?.tone}`}>{factStatus[field.status]?.label ?? field.status}</span></div>{field.type === "textarea" ? <textarea id={`fact-${field.key}`} value={values[field.key] ?? ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} /> : <input id={`fact-${field.key}`} type={field.type === "datetime" ? "datetime-local" : field.type} value={values[field.key] ?? ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} />}<div className="field-actions"><small>{field.source_text ? `来源：“${field.source_text}”` : field.protected ? "关键事实 · 使用引用节点保护" : "叙述字段"}</small><span><button className="text-button" onClick={() => void update(field, false)}><Save size={14} />保存</button><button className="text-button confirm" onClick={() => void update(field, true)} disabled={!values[field.key]?.trim()}><Check size={14} />确认</button></span></div></div>)}</div></section></div>;
+  const bulkHint = missingRequired.length
+    ? `请先填写必填事实：${missingRequired.map((field) => field.label).join("、")}`
+    : unresolvedConflicts.length
+      ? `请先修改冲突事实：${unresolvedConflicts.map((field) => field.label).join("、")}`
+      : confirmableEntries.length
+        ? `将确认 ${confirmableEntries.length} 项已填写事实；空的可选字段仍保持缺失。`
+        : "当前所有已填写事实均已确认。";
+  const cannotConfirmAll = confirmingAll || missingRequired.length > 0 || unresolvedConflicts.length > 0 || confirmableEntries.length === 0;
+
+  return (
+    <div className="two-column">
+      <section className="panel sticky-card">
+        <div className="panel-head"><div><span className="eyebrow">可选 AI 辅助</span><h3>粘贴上级通知</h3></div><Bot size={22} /></div>
+        <textarea className="source-text" value={source} onChange={(event) => setSource(event.target.value)} placeholder="粘贴群通知、聊天记录或活动要求……" />
+        <button className="primary wide" onClick={() => void extract()} disabled={!source.trim() || extracting}>{extracting ? <LoaderCircle className="spin" /> : <Sparkles />}提取候选事实</button>
+        <p className="hint">相对日期和 AI 结果都不会自动确认。“本周六”会保留原文，必须由你核对。</p>
+      </section>
+      <section className="panel">
+        <div className="panel-head"><div><span className="eyebrow">facts-v{affair.current_fact_version}</span><h3>事实底稿</h3></div><span className="privacy-note"><ShieldCheck size={15} />只有已确认值可进入文案</span></div>
+        <div className="fact-bulk-actions">
+          <div><strong>批量确认</strong><span>{bulkHint}</span></div>
+          <button className="primary" onClick={() => void confirmAll()} disabled={cannotConfirmAll}>{confirmingAll ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />}确认全部已填写事实</button>
+        </div>
+        <div className="fact-list">
+          {fields.map((field) => (
+            <div className="fact-row" key={field.key}>
+              <div className="field-title"><label htmlFor={`fact-${field.key}`}>{field.label}{field.required && <em>*</em>}</label><span className={`chip ${factStatus[field.status]?.tone}`}>{factStatus[field.status]?.label ?? field.status}</span></div>
+              {field.type === "textarea"
+                ? <textarea id={`fact-${field.key}`} value={values[field.key] ?? ""} onChange={(event) => changeValue(field.key, event.target.value)} />
+                : <input id={`fact-${field.key}`} type={field.type === "datetime" ? "datetime-local" : field.type} value={values[field.key] ?? ""} onChange={(event) => changeValue(field.key, event.target.value)} />}
+              <div className="field-actions">
+                <small>{field.source_text ? `来源：“${field.source_text}”` : field.protected ? "关键事实 · 使用引用节点保护" : "叙述字段"}</small>
+                <span><button className="text-button" onClick={() => void update(field, false)}><Save size={14} />保存</button><button className="text-button confirm" onClick={() => void update(field, true)} disabled={!values[field.key]?.trim()}><Check size={14} />确认</button></span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function Drafts({ affair, onChanged, show }: { affair: Affair; onChanged: () => Promise<void>; show: (kind: "success" | "error", text: string) => void }) {
