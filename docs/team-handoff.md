@@ -291,7 +291,7 @@ docs: clarify Windows build steps
 | --- | --- |
 | 成员 A / GitHub 用户名 | `Caspian315` |
 | 成员 B / GitHub 用户名 | `wjgheh` |
-| 成员 C / GitHub 用户名（如有） | `urnr` |
+| 成员 C / GitHub 用户名（如有） | `URNR0` |
 | 采用两人还是三人方案 | 三人方案 |
 | 产品与前端负责人 | 待填写 |
 | 核心与 AI 负责人 | 待填写 |
