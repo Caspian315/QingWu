@@ -40,6 +40,7 @@
 python -m pytest       13 passed
 npm test               1 passed
 npm run build          passed
+GitHub Windows cargo check passed
 三个内置模板            passed
 冻结 sidecar 通信       passed
 冻结 CLI 归档           passed
@@ -49,7 +50,7 @@ npm run build          passed
 
 | 模块 | 已有代码 | 尚缺验证 |
 | --- | --- | --- |
-| Tauri 桌面壳 | Rust IPC、托盘、关闭到托盘、Windows 通知、开机启动、Credential Manager | 当前电脑没有 Rust，尚未 `cargo check`、`tauri dev`、`tauri build` |
+| Tauri 桌面壳 | Rust IPC、托盘、关闭到托盘、Windows 通知、开机启动、Credential Manager；GitHub Windows runner 已通过 `cargo check` | 当前电脑没有 Rust，尚未完成 `tauri dev`、`tauri build`、真实托盘与通知验证 |
 | OpenAI | Responses API、结构化输出、`store: false`、默认模型配置、错误边界 | 尚未使用专门的测试 Key 做真实 API 成功/超时/限流/非法 JSON 验证 |
 | Windows 提醒 | 每分钟轮询、截止偏移、已发送去重 | 尚未真实测试通知权限、休眠恢复、重启、跨时区和完全退出 |
 | 安装包 | Tauri 配置了 NSIS/MSI，Python sidecar 可由 PyInstaller 冻结 | 尚未生成并在干净 Windows 10/11 机器安装 |
@@ -72,9 +73,9 @@ npm run build          passed
 
 按优先级排序：
 
-### P0：桌面壳尚未编译
+### P0：桌面壳尚未完成运行与打包验证
 
-Rust/Tauri 源码看起来完整不等于能编译。第一优先级是建立 Rust 环境，让 CI 和至少一台开发机完成 `cargo check`、`tauri dev` 与 sidecar 通信。出现编译问题时，暂停新增产品功能，先修通主链路。
+Rust/Tauri 源码已经在 GitHub Windows runner 通过 `cargo check`，但静态编译通过不等于桌面应用可正常运行。第一优先级仍是让至少一台开发机完成 `tauri dev`、真实 sidecar 通信、托盘和通知验证。出现桌面主链路问题时，暂停新增产品功能，先修通主链路。
 
 ### P0：测试数量仍少
 

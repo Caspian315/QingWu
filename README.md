@@ -1,5 +1,7 @@
 # 轻务 Qingwu
 
+[![CI](https://github.com/Caspian315/QingWu/actions/workflows/ci.yml/badge.svg)](https://github.com/Caspian315/QingWu/actions/workflows/ci.yml)
+
 > 围绕一项学生工作事务，只录入一次事实，辅助生成通知、提醒和推文，并一路管理待办、材料和最终归档。
 
 轻务是面向团支书、班委、学生会和社团骨干的 Windows 本地事务工作台。它不是学校管理后台，也不是一个空白 AI 聊天框。每项工作都围绕同一个对象组织：

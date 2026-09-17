@@ -24,13 +24,14 @@
 python -m pytest       13 passed
 npm test               1 passed
 npm run build          passed
+GitHub Windows cargo check passed
 冻结 CLI                0.1.0，可正确输出中文
 冻结 sidecar            JSON Lines 请求与中文响应正常
 ```
 
 ## 当前验证边界
 
-- 当前开发机没有 Rust 工具链，因此尚未在本机执行 `cargo check`、`tauri dev` 或 `tauri build`；CI 已配置 Windows Rust 静态检查。
+- GitHub Actions 的 Windows runner 已通过 `cargo check`；当前开发机没有 Rust 工具链，因此尚未在本机执行 `tauri dev` 或 `tauri build`，也没有完成桌面运行与安装包验证。
 - 当前开发机只有 Python 3.11。本机生成的 sidecar 和 CLI 仅用于验证 PyInstaller 链路；正式打包脚本会拒绝非 Python 3.12 解释器，发布产物必须在 Python 3.12 环境重新构建。
 - 尚未在无 Node.js、Python、Rust 的干净 Windows 10/11 x64 机器上验收 NSIS、MSI、便携包和 CLI。
 - 尚未完成休眠恢复、系统通知权限被拒绝、磁盘空间不足、超长路径等真实 Windows 场景测试。
