@@ -9,6 +9,17 @@ import type { Affair, AffairCheck, AffairSummary, Draft, FactField, StyleCard, T
 
 type Tab = "overview" | "facts" | "drafts" | "style" | "timeline" | "materials" | "archive" | "settings";
 type Notice = { kind: "success" | "error"; text: string } | null;
+type StyleCardForm = {
+  tone: string;
+  greeting: string;
+  paragraph_length: string;
+  heading_style: string;
+  emoji_policy: string;
+  common_phrases: string;
+  forbidden_phrases: string;
+  sign_off: string;
+  punctuation: string;
+};
 
 const navItems: Array<{ id: Tab; label: string; icon: typeof Home }> = [
   { id: "overview", label: "事务总览", icon: Home },
@@ -32,6 +43,43 @@ const draftStatus: Record<string, { label: string; tone: string }> = {
   needs_review: { label: "待审核", tone: "warning" }, ready_to_copy: { label: "可复制", tone: "success" },
   stale: { label: "事实已变更", tone: "danger" }, archived: { label: "已归档", tone: "neutral" },
 };
+
+const documentKindLabels: Record<string, string> = {
+  notice: "群通知",
+  article: "公众号推文",
+  recruitment: "招募推文",
+};
+
+function styleCardToForm(card: StyleCard["card"]): StyleCardForm {
+  const text = (key: string, fallback = "") => typeof card[key] === "string" ? card[key] as string : fallback;
+  const lines = (key: string) => Array.isArray(card[key]) ? (card[key] as string[]).join("\n") : "";
+  return {
+    tone: text("tone"),
+    greeting: text("greeting"),
+    paragraph_length: text("paragraph_length", "short"),
+    heading_style: text("heading_style"),
+    emoji_policy: text("emoji_policy"),
+    common_phrases: lines("common_phrases"),
+    forbidden_phrases: lines("forbidden_phrases"),
+    sign_off: text("sign_off"),
+    punctuation: text("punctuation", "中文全角标点"),
+  };
+}
+
+function styleFormToCard(form: StyleCardForm): StyleCard["card"] {
+  const lines = (value: string) => value.split("\n").map((item) => item.trim()).filter(Boolean);
+  return {
+    tone: form.tone.trim(),
+    greeting: form.greeting.trim(),
+    paragraph_length: form.paragraph_length,
+    heading_style: form.heading_style.trim(),
+    emoji_policy: form.emoji_policy.trim(),
+    common_phrases: lines(form.common_phrases),
+    forbidden_phrases: lines(form.forbidden_phrases),
+    sign_off: form.sign_off.trim(),
+    punctuation: form.punctuation.trim(),
+  };
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "尚未安排";
@@ -330,7 +378,7 @@ function Drafts({ affair, onChanged, show }: { affair: Affair; onChanged: () => 
   return <div className="draft-layout"><aside className="document-list"><span className="eyebrow">文案类型</span>{affair.template.documents.map((item) => { const existing = affair.drafts.find((draftItem) => draftItem.document_id === item.id); return <button key={item.id} className={selected === item.id ? "selected" : ""} onClick={() => setSelected(item.id)}><FileText size={17} /><span><strong>{item.title}</strong><small>{existing ? `v${existing.version} · ${draftStatus[existing.status]?.label}` : "尚未生成"}</small></span></button>; })}</aside><section className="panel draft-editor"><div className="panel-head"><div><span className="eyebrow">{document?.kind ?? "文案"}</span><h3>{document?.title ?? "选择文案"}</h3></div><div className="heading-actions">{draft && <button className="text-button" onClick={() => setEditing(!editing)}>{editing ? "取消编辑" : "手工修改"}</button>}{draft && <span className={`chip ${draftStatus[draft.status]?.tone}`}>{draftStatus[draft.status]?.label}</span>}</div></div>{draft ? <><div className={`draft-banner ${draft.status === "stale" || draft.status === "missing_facts" ? "alert" : ""}`}>{draft.status === "stale" ? "事实底稿已经变化。这份旧草稿被保留，但不能直接标记为可复制。" : draft.status === "missing_facts" ? "文案中仍有待填写字段。确认事实后重新生成。" : draft.status === "needs_review" ? "请人工检查措辞和事实，确认后再复制。" : "这份文案已经过人工确认。"}</div>{editing ? <div className="manual-editor"><textarea value={editedBody} onChange={(event) => setEditedBody(event.target.value)} /><span className="eyebrow">重新生成时保留这些段落</span><div className="paragraph-locks">{paragraphs.map((paragraph, index) => <label key={`${index}-${paragraph.slice(0, 8)}`}><input type="checkbox" checked={lockedParagraphs.includes(index)} onChange={(event) => setLockedParagraphs(event.target.checked ? [...lockedParagraphs, index] : lockedParagraphs.filter((value) => value !== index))} /><span>{paragraph.slice(0, 70) || "空段落"}</span></label>)}</div><button className="secondary" onClick={() => void saveManualVersion()}><Save size={16} />保存为新版本</button></div> : <pre className="draft-preview">{draft.rendered_body}</pre>}<div className="draft-meta"><span>基于 facts-v{draft.fact_version}</span><span>文案 v{draft.version}</span><span>{draft.ai_generated ? "AI 辅助" : "离线模板"}</span><span>锁定 {draft.locked_blocks?.length ?? 0} 段</span></div></> : <div className="empty-state"><MessageSquareText /><h4>还没有这类文案</h4><p>轻务会从同一份事实底稿读取时间、地点和联系人。</p></div>}<div className="editor-actions"><label className="switch-row"><input type="checkbox" checked={useAI} onChange={(event) => setUseAI(event.target.checked)} /><span>使用 AI 优化表达</span><small>关闭时使用确定性模板</small></label><div><button className="secondary" onClick={() => void generate()} disabled={!selected || generating}>{generating ? <LoaderCircle className="spin" /> : <RefreshCw size={16} />}{draft ? "生成新版本" : "生成草稿"}</button>{draft && <button className="secondary" onClick={() => void markReady()} disabled={draft.status === "stale" || draft.status === "missing_facts" || draft.status === "ready_to_copy"}><CheckCircle2 size={16} />确认可用</button>}<button className="primary" onClick={() => void copy()} disabled={!draft || draft.status !== "ready_to_copy"}><Copy size={16} />复制文案</button></div></div></section></div>;
 }
 
-function StyleCards({ show }: { show: (kind: "success" | "error", text: string) => void }) {
+export function StyleCards({ show }: { show: (kind: "success" | "error", text: string) => void }) {
   const [cards, setCards] = useState<StyleCard[]>([]);
   const [active, setActive] = useState<StyleCard | null>(null);
   const [name, setName] = useState("组织通知风格");
@@ -338,7 +386,7 @@ function StyleCards({ show }: { show: (kind: "success" | "error", text: string) 
   const [samples, setSamples] = useState("");
   const [paths, setPaths] = useState<string[]>([]);
   const [preview, setPreview] = useState<{ sample_count: number; text_length: number; pii_warnings: Array<{ type: string; count: number }> } | null>(null);
-  const [cardJson, setCardJson] = useState("{}");
+  const [cardForm, setCardForm] = useState<StyleCardForm>(() => styleCardToForm({}));
   const [busy, setBusy] = useState(false);
   const texts = () => samples.split(/\n\s*---+\s*\n/).map((value) => value.trim()).filter(Boolean);
   const reload = useCallback(async (selectId?: string) => {
@@ -346,7 +394,7 @@ function StyleCards({ show }: { show: (kind: "success" | "error", text: string) 
     setCards(list);
     const selected = list.find((item) => item.id === selectId) ?? list[0] ?? null;
     setActive(selected);
-    setCardJson(selected ? JSON.stringify(selected.card, null, 2) : "{}");
+    setCardForm(styleCardToForm(selected?.card ?? {}));
   }, []);
   useEffect(() => { void reload().catch((error) => show("error", error instanceof Error ? error.message : String(error))); }, []);
   async function chooseFiles() {
@@ -376,14 +424,21 @@ function StyleCards({ show }: { show: (kind: "success" | "error", text: string) 
   }
   async function confirm() {
     if (!active) return;
+    const card = styleFormToCard(cardForm);
+    if ((card.common_phrases as string[]).length > 20 || (card.forbidden_phrases as string[]).length > 20) {
+      show("error", "常用表达和禁用表达分别最多填写 20 条。");
+      return;
+    }
     try {
-      const card = JSON.parse(cardJson);
       const confirmed = await call<StyleCard>("style.confirm_card", { id: active.id, card, delete_cache: true });
       await reload(confirmed.id); show("success", "风格卡已确认，原始提取文本缓存已删除。");
-    } catch (error) { show("error", error instanceof Error ? error.message : "风格卡 JSON 无效"); }
+    } catch (error) { show("error", error instanceof Error ? error.message : String(error)); }
   }
-  function selectCard(card: StyleCard) { setActive(card); setCardJson(JSON.stringify(card.card, null, 2)); }
-  return <div className="style-layout"><aside className="document-list"><span className="eyebrow">已保存风格</span>{cards.map((card) => <button key={card.id} className={active?.id === card.id ? "selected" : ""} onClick={() => selectCard(card)}><Palette size={17} /><span><strong>{card.name}</strong><small>{card.document_kind} · {card.confirmed ? "已确认" : "待确认"}</small></span></button>)}{!cards.length && <p className="empty-small">还没有风格卡。右侧导入 3–10 篇同类文案。</p>}</aside><div className="page-stack"><section className="panel"><div className="panel-head"><div><span className="eyebrow">本地预处理</span><h3>导入认可的历史文案</h3></div><Users size={21} /></div><div className="form-grid"><label>风格卡名称<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>文案类型<select value={kind} onChange={(event) => setKind(event.target.value)}><option value="notice">群通知</option><option value="article">公众号推文</option><option value="recruitment">招募推文</option></select></label></div><label>粘贴样本（用单独一行 <code>---</code> 分隔）<textarea className="style-samples" value={samples} onChange={(event) => { setSamples(event.target.value); setPreview(null); }} placeholder={'各位同学：……\n\n---\n\n第二篇历史文案……'} /></label><div className="inline-actions"><button className="secondary" onClick={() => void chooseFiles()}><FolderInput size={16} />选择 TXT / MD / DOCX / PDF</button><span>{paths.length ? `已选择 ${paths.length} 个文件` : "默认只提取本地文本，不上传原文件"}</span><button className="secondary" onClick={() => void inspect()} disabled={busy || (!texts().length && !paths.length)}>上传前预览</button></div>{preview && <div className="preview-box"><strong>{preview.sample_count} 篇 · {preview.text_length} 个字符</strong>{preview.pii_warnings.length ? <span className="warning-text">发现：{preview.pii_warnings.map((item) => `${item.type} ${item.count} 处`).join("、")}。请先从样本中删除。</span> : <span>未命中内置敏感信息模式，仍请人工检查。</span>}<button className="primary" onClick={() => void importExamples()} disabled={preview.sample_count === 0}>确认并导入</button></div>}</section>{active && <section className="panel"><div className="panel-head"><div><span className="eyebrow">{active.sample_count} 篇样本</span><h3>{active.name}</h3></div><span className={`chip ${active.confirmed ? "success" : "warning"}`}>{active.confirmed ? "已启用" : "等待确认"}</span></div><textarea className="json-editor" value={cardJson} onChange={(event) => setCardJson(event.target.value)} spellCheck={false} /><div className="inline-actions end"><button className="secondary" onClick={() => void generate()} disabled={busy}><Sparkles size={16} />AI 提炼风格</button><button className="primary" onClick={() => void confirm()}><Check size={16} />确认并删除样本文本缓存</button></div></section>}</div></div>;
+  function selectCard(card: StyleCard) { setActive(card); setCardForm(styleCardToForm(card.card)); }
+  function updateCardField<K extends keyof StyleCardForm>(key: K, value: StyleCardForm[K]) {
+    setCardForm((current) => ({ ...current, [key]: value }));
+  }
+  return <div className="style-layout"><aside className="document-list"><span className="eyebrow">已保存风格</span>{cards.map((card) => <button key={card.id} className={active?.id === card.id ? "selected" : ""} onClick={() => selectCard(card)}><Palette size={17} /><span><strong>{card.name}</strong><small>{documentKindLabels[card.document_kind] ?? card.document_kind} · {card.confirmed ? "已确认" : "待确认"}</small></span></button>)}{!cards.length && <p className="empty-small">还没有风格卡。右侧导入 3–10 篇同类文案。</p>}</aside><div className="page-stack"><section className="panel"><div className="panel-head"><div><span className="eyebrow">本地预处理</span><h3>导入认可的历史文案</h3></div><Users size={21} /></div><div className="form-grid"><label>风格卡名称<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>文案类型<select value={kind} onChange={(event) => setKind(event.target.value)}><option value="notice">群通知</option><option value="article">公众号推文</option><option value="recruitment">招募推文</option></select></label></div><label>粘贴样本（用单独一行 <code>---</code> 分隔）<textarea className="style-samples" value={samples} onChange={(event) => { setSamples(event.target.value); setPreview(null); }} placeholder={'各位同学：……\n\n---\n\n第二篇历史文案……'} /></label><div className="inline-actions"><button className="secondary" onClick={() => void chooseFiles()}><FolderInput size={16} />选择 TXT / MD / DOCX / PDF</button><span>{paths.length ? `已选择 ${paths.length} 个文件` : "默认只提取本地文本，不上传原文件"}</span><button className="secondary" onClick={() => void inspect()} disabled={busy || (!texts().length && !paths.length)}>上传前预览</button></div>{preview && <div className="preview-box"><strong>{preview.sample_count} 篇 · {preview.text_length} 个字符</strong>{preview.pii_warnings.length ? <span className="warning-text">发现：{preview.pii_warnings.map((item) => `${item.type} ${item.count} 处`).join("、")}。请先从样本中删除。</span> : <span>未命中内置敏感信息模式，仍请人工检查。</span>}<button className="primary" onClick={() => void importExamples()} disabled={preview.sample_count === 0}>确认并导入</button></div>}</section>{active && <section className="panel style-card-editor"><div className="panel-head"><div><span className="eyebrow">{active.sample_count} 篇样本</span><h3>{active.name}</h3></div><span className={`chip ${active.confirmed ? "success" : "warning"}`}>{active.confirmed ? "已启用" : "等待确认"}</span></div><p className="muted style-editor-intro">这些设置决定以后生成文案时采用的表达习惯。可以直接修改，确认后才会启用。</p><div className="style-card-form"><label>语气风格<input value={cardForm.tone} onChange={(event) => updateCardField("tone", event.target.value)} placeholder="例如：正式但不生硬" /></label><label>开场称呼<input value={cardForm.greeting} onChange={(event) => updateCardField("greeting", event.target.value)} placeholder="例如：各位同学：" /></label><label>段落长度<select value={cardForm.paragraph_length} onChange={(event) => updateCardField("paragraph_length", event.target.value)}><option value="short">短段落</option><option value="medium">中等段落</option><option value="long">长段落</option></select></label><label>标题样式<input value={cardForm.heading_style} onChange={(event) => updateCardField("heading_style", event.target.value)} placeholder="例如：序号加短标题" /></label><label>表情使用规则<input value={cardForm.emoji_policy} onChange={(event) => updateCardField("emoji_policy", event.target.value)} placeholder="例如：通知中不使用" /></label><label>结尾署名<input value={cardForm.sign_off} onChange={(event) => updateCardField("sign_off", event.target.value)} placeholder="例如：组织落款" /></label><label className="span-two">标点风格<input value={cardForm.punctuation} onChange={(event) => updateCardField("punctuation", event.target.value)} placeholder="例如：中文全角标点" /></label></div><div className="phrase-grid"><label>常用表达<span>每行填写一条，最多 20 条</span><textarea value={cardForm.common_phrases} onChange={(event) => updateCardField("common_phrases", event.target.value)} placeholder={'请各位同学注意\n感谢大家的配合'} /></label><label>禁用表达<span>每行填写一条，最多 20 条</span><textarea value={cardForm.forbidden_phrases} onChange={(event) => updateCardField("forbidden_phrases", event.target.value)} placeholder={'速来\n家人们'} /></label></div><div className="style-card-footer"><p><ShieldCheck size={15} />确认后只保留风格规则，并删除导入的样本文本缓存；不会删除你的原始文件。</p><div className="inline-actions end"><button className="secondary" onClick={() => void generate()} disabled={busy}><Sparkles size={16} />AI 重新提炼</button><button className="primary" onClick={() => void confirm()}><Check size={16} />确认并启用风格</button></div></div></section>}</div></div>;
 }
 
 function Timeline({ affair, onChanged, show }: { affair: Affair; onChanged: () => Promise<void>; show: (kind: "success" | "error", text: string) => void }) {
