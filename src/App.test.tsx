@@ -27,6 +27,24 @@ const mockedCall = vi.mocked(call);
 
 describe("AI error messages", () => {
   it.each([
+    [{ code: "ai_unavailable", message: "opaque", reason: "missing_api_key" }, "尚未配置 OpenAI API Key。请先到“设置”中保存 API Key，再重新尝试。"],
+    [{ code: "ai_unavailable", message: "opaque", reason: "http_401" }, "当前 API Key 无效或已经失效。请到“设置”中重新保存有效的 API Key。"],
+    [{ code: "ai_unavailable", message: "opaque", reason: "http_429" }, "AI 请求过于频繁，或者当前 API 项目额度不足。请稍后重试，并检查 API 项目的额度。"],
+    [{ code: "ai_unavailable", message: "opaque", reason: "http_404" }, "当前模型不可用，或者模型 ID 填写不正确。请到“设置”中检查模型 ID。"],
+    [{ code: "ai_unavailable", message: "opaque", reason: "network" }, "暂时无法连接 OpenAI。请检查网络或代理设置后重试；不使用 AI 也可以继续完成当前任务。"],
+    [{ code: "ai_unavailable", message: "opaque", reason: "empty_response" }, "AI 没有返回可用内容，本次结果没有保存。请重新尝试；如果多次出现，请联系开发者检查 AI 响应。"],
+    [{ code: "ai_unavailable", message: "opaque", reason: "invalid_json" }, "AI 返回的内容格式异常，本次结果没有保存。请重新尝试；如果多次出现，请联系开发者检查结构化输出。"],
+    [{ code: "validation_error", message: "opaque", reason: "missing_fact_tokens" }, "AI 生成的文案缺少必要事实。为避免发布错误信息，本次草稿没有保存。你可以重试，或关闭 AI 后使用离线模板；如果重复出现，请联系开发者检查文案模板。"],
+    [{ code: "ai_unavailable", message: "opaque", reason: "http_503" }, "AI 服务暂时无法完成请求，本次结果没有保存。请稍后重试；如果重复出现，请联系开发者并提供错误发生时间。"],
+  ])("maps structured reason from %s", (error, expected) => {
+    expect(formatAiErrorMessage(error)).toBe(expected);
+  });
+
+  it("falls back to the message for an unknown structured error", () => {
+    expect(formatAiErrorMessage({ code: "future_error", message: "未来错误", reason: "future" })).toBe("未来错误");
+  });
+
+  it.each([
     [new Error("尚未配置 OpenAI API Key"), "尚未配置 OpenAI API Key。请先到“设置”中保存 API Key，再重新尝试。"],
     [new Error("尚未在设置中保存 OpenAI API Key"), "尚未配置 OpenAI API Key。请先到“设置”中保存 API Key，再重新尝试。"],
     [new Error("OpenAI API 返回 HTTP 401：invalid_api_key"), "当前 API Key 无效或已经失效。请到“设置”中重新保存有效的 API Key。"],

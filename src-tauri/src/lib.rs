@@ -18,6 +18,25 @@ use tauri_plugin_notification::NotificationExt;
 const CREDENTIAL_SERVICE: &str = "Qingwu";
 const CREDENTIAL_USER: &str = "openai-api-key";
 
+type RpcResult<T> = Result<T, Value>;
+
+fn rpc_error(code: &str, message: impl Into<String>) -> Value {
+    json!({ "code": code, "message": message.into() })
+}
+
+fn parse_sidecar_response(response_line: &str) -> RpcResult<Value> {
+    let response: Value = serde_json::from_str(response_line)
+        .map_err(|_| rpc_error("invalid_sidecar_response", "轻务核心返回了无效响应"))?;
+    if response.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(response.get("result").cloned().unwrap_or(Value::Null))
+    } else {
+        match response.get("error") {
+            Some(error @ Value::Object(_)) => Err(error.clone()),
+            _ => Err(rpc_error("sidecar_call_failed", "轻务核心调用失败")),
+        }
+    }
+}
+
 struct SidecarClient {
     _child: Child,
     input: BufWriter<ChildStdin>,
@@ -51,20 +70,19 @@ impl SidecarClient {
         Ok(Self { _child: child, input: BufWriter::new(input), output: BufReader::new(output) })
     }
 
-    fn call(&mut self, request_id: u64, method: &str, params: Value) -> Result<Value, String> {
+    fn call(&mut self, request_id: u64, method: &str, params: Value) -> RpcResult<Value> {
         let line = serde_json::to_string(&json!({ "id": request_id, "method": method, "params": params }))
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| rpc_error("sidecar_request_failed", error.to_string()))?;
         self.input.write_all(line.as_bytes()).and_then(|_| self.input.write_all(b"\n"))
-            .and_then(|_| self.input.flush()).map_err(|error| format!("轻务核心连接写入失败：{error}"))?;
+            .and_then(|_| self.input.flush())
+            .map_err(|error| rpc_error("sidecar_write_failed", format!("轻务核心连接写入失败：{error}")))?;
         let mut response_line = String::new();
-        self.output.read_line(&mut response_line).map_err(|error| format!("轻务核心连接读取失败：{error}"))?;
-        if response_line.is_empty() { return Err("轻务核心意外退出".into()); }
-        let response: Value = serde_json::from_str(&response_line).map_err(|_| "轻务核心返回了无效响应")?;
-        if response.get("ok").and_then(Value::as_bool) == Some(true) {
-            Ok(response.get("result").cloned().unwrap_or(Value::Null))
-        } else {
-            Err(response.pointer("/error/message").and_then(Value::as_str).unwrap_or("轻务核心调用失败").to_string())
+        self.output.read_line(&mut response_line)
+            .map_err(|error| rpc_error("sidecar_read_failed", format!("轻务核心连接读取失败：{error}")))?;
+        if response_line.is_empty() {
+            return Err(rpc_error("sidecar_exited", "轻务核心意外退出"));
         }
+        parse_sidecar_response(&response_line)
     }
 }
 
@@ -75,9 +93,11 @@ struct SidecarState {
 }
 
 impl SidecarState {
-    fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+    fn call(&self, method: &str, params: Value) -> RpcResult<Value> {
         let request_id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.client.lock().map_err(|_| "轻务核心连接锁定失败".to_string())?.call(request_id, method, params)
+        self.client.lock()
+            .map_err(|_| rpc_error("sidecar_lock_failed", "轻务核心连接锁定失败"))?
+            .call(request_id, method, params)
     }
 }
 
@@ -86,13 +106,20 @@ fn credential() -> Result<keyring::Entry, String> {
 }
 
 #[tauri::command]
-fn rpc(method: String, mut params: Value, state: State<'_, SidecarState>) -> Result<Value, String> {
+fn rpc(method: String, mut params: Value, state: State<'_, SidecarState>) -> RpcResult<Value> {
     let use_saved_key = params.as_object_mut().and_then(|value| value.remove("use_saved_api_key"))
         .and_then(|value| value.as_bool()).unwrap_or(false);
     let needs_key = use_saved_key && (method == "fact.extract" || method == "style.generate_card"
         || (method == "draft.generate" && params.get("use_ai").and_then(Value::as_bool) == Some(true)));
     if needs_key {
-        let api_key = credential()?.get_password().map_err(|_| "尚未在设置中保存 OpenAI API Key".to_string())?;
+        let api_key = credential()
+            .map_err(|message| rpc_error("credential_error", message))?
+            .get_password()
+            .map_err(|_| json!({
+                "code": "ai_unavailable",
+                "message": "尚未在设置中保存 OpenAI API Key",
+                "reason": "missing_api_key"
+            }))?;
         if let Some(object) = params.as_object_mut() { object.insert("api_key".into(), Value::String(api_key)); }
     }
     state.call(&method, params)
@@ -250,4 +277,37 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("轻务启动失败");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidecar_error_object_is_preserved() {
+        let response = json!({
+            "id": 7,
+            "ok": false,
+            "error": {
+                "code": "ai_unavailable",
+                "message": "OpenAI API 返回 HTTP 429",
+                "reason": "http_429",
+                "retry_after": 30
+            }
+        });
+
+        let error = parse_sidecar_response(&response.to_string()).unwrap_err();
+
+        assert_eq!(error, response["error"]);
+    }
+
+    #[test]
+    fn malformed_sidecar_error_uses_structured_fallback() {
+        let error = parse_sidecar_response(r#"{"id":7,"ok":false}"#).unwrap_err();
+
+        assert_eq!(error, json!({
+            "code": "sidecar_call_failed",
+            "message": "轻务核心调用失败"
+        }));
+    }
 }

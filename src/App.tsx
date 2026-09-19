@@ -51,7 +51,41 @@ const documentKindLabels: Record<string, string> = {
 };
 
 export function formatAiErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
+  const payload = error && typeof error === "object" ? error as Record<string, unknown> : null;
+  const reason = typeof payload?.reason === "string" ? payload.reason : null;
+  const message = error instanceof Error
+    ? error.message
+    : typeof payload?.message === "string"
+      ? payload.message
+      : String(error);
+
+  if (reason === "missing_api_key") {
+    return "尚未配置 OpenAI API Key。请先到“设置”中保存 API Key，再重新尝试。";
+  }
+  if (reason === "http_401") {
+    return "当前 API Key 无效或已经失效。请到“设置”中重新保存有效的 API Key。";
+  }
+  if (reason === "http_429") {
+    return "AI 请求过于频繁，或者当前 API 项目额度不足。请稍后重试，并检查 API 项目的额度。";
+  }
+  if (reason === "http_404") {
+    return "当前模型不可用，或者模型 ID 填写不正确。请到“设置”中检查模型 ID。";
+  }
+  if (reason === "network") {
+    return "暂时无法连接 OpenAI。请检查网络或代理设置后重试；不使用 AI 也可以继续完成当前任务。";
+  }
+  if (reason === "empty_response") {
+    return "AI 没有返回可用内容，本次结果没有保存。请重新尝试；如果多次出现，请联系开发者检查 AI 响应。";
+  }
+  if (reason === "invalid_json") {
+    return "AI 返回的内容格式异常，本次结果没有保存。请重新尝试；如果多次出现，请联系开发者检查结构化输出。";
+  }
+  if (reason === "missing_fact_tokens") {
+    return "AI 生成的文案缺少必要事实。为避免发布错误信息，本次草稿没有保存。你可以重试，或关闭 AI 后使用离线模板；如果重复出现，请联系开发者检查文案模板。";
+  }
+  if (reason?.startsWith("http_")) {
+    return "AI 服务暂时无法完成请求，本次结果没有保存。请稍后重试；如果重复出现，请联系开发者并提供错误发生时间。";
+  }
 
   if (/OpenAI API\s*返回\s*HTTP\s*401\b/i.test(message)) {
     return "当前 API Key 无效或已经失效。请到“设置”中重新保存有效的 API Key。";
