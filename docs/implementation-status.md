@@ -1,6 +1,6 @@
 # v0.1.0 实现状态
 
-更新日期：2026-09-17
+更新日期：2026-09-19
 
 这份文件区分“仓库中已经实现并在开发机验证的能力”和“正式发布前仍需完成的门槛”。它不是发布公告，不能替代真实用户试用、干净机器测试或安装包验收。
 
@@ -14,6 +14,7 @@
 - AI 请求设置 `store: false`；API Key 设计为仅由 Rust 层访问 Windows Credential Manager。
 - 支持风格样本导入预览、疑似个人信息提示、可编辑风格卡和提取文本删除。
 - 支持事务待办、提醒偏移、截止时间变化后的提醒状态重置和提醒去重。
+- Windows 11 已验证 24 小时、2 小时、到期、重启、休眠恢复、权限拒绝、开机启动关闭和完全退出提醒矩阵。
 - 支持材料槽位、文件哈希、文件变化、重复文件、扩展名与文件签名不一致、缺项及报销凭证检查。
 - 支持 ZIP、JSON、HTML、PDF 和 DOCX 归档输出，并在导出时重新检查源材料哈希。
 - React 浏览器演示模式、Python sidecar、维护者 CLI 和 PyInstaller 打包链路均已运行验证。
@@ -21,8 +22,8 @@
 本轮本机验证结果：
 
 ```text
-python -m pytest       13 passed
-npm test               1 passed
+python -m pytest       34 passed
+npm test               17 passed
 npm run build          passed
 GitHub Windows cargo check passed
 冻结 CLI                0.1.0，可正确输出中文
@@ -31,10 +32,11 @@ GitHub Windows cargo check passed
 
 ## 当前验证边界
 
-- GitHub Actions 的 Windows runner 已通过 `cargo check`；当前开发机没有 Rust 工具链，因此尚未在本机执行 `tauri dev` 或 `tauri build`，也没有完成桌面运行与安装包验证。
-- 当前开发机只有 Python 3.11。本机生成的 sidecar 和 CLI 仅用于验证 PyInstaller 链路；正式打包脚本会拒绝非 Python 3.12 解释器，发布产物必须在 Python 3.12 环境重新构建。
+- GitHub Actions 和 Windows 开发机均已通过 `cargo check`，本机已完成 `tauri dev` 桌面联调；最终 `tauri build` 安装包推迟到 issue #17。
+- Python 3.12 sidecar 和 CLI 已按仓库脚本重建并记录文件大小与 SHA-256。
 - 尚未在无 Node.js、Python、Rust 的干净 Windows 10/11 x64 机器上验收 NSIS、MSI、便携包和 CLI。
-- 尚未完成休眠恢复、系统通知权限被拒绝、磁盘空间不足、超长路径等真实 Windows 场景测试。
+- 提醒矩阵已完成 Windows 11 开发桌面验证；最终安装包仍需在 issue #17 恢复后重复提醒冒烟测试。
+- 材料归档的磁盘空间不足场景仍有失败输出清理和中文提示问题，见 issue #7。
 - 尚未完成至少 6 名目标用户、3 次活动组织、3 次材料收集和 2 次报销整理的试用门槛。
 - GitHub、npm、PyPI、域名和商标同名检查尚未完成，`CHANGELOG.md` 的发布日期仍为 `TBD`。
 

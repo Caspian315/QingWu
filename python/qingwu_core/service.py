@@ -581,16 +581,18 @@ class QingwuService:
             sent = set(json_loads(row["sent_reminders_json"], []))
             offsets = sorted((int(value) for value in json_loads(row["reminder_offsets_json"], [])), reverse=True)
             new_keys = []
+            latest_due = None
             for offset in offsets:
                 key = f"{row['due_at']}|{offset}"
                 trigger = due - timedelta(minutes=offset)
                 if key not in sent and trigger <= now <= due + timedelta(hours=24):
-                    due_items.append({
+                    latest_due = {
                         "task_id": row["id"], "affair_id": row["affair_id"], "affair_title": row["affair_title"],
                         "title": row["title"], "due_at": row["due_at"], "offset_minutes": offset,
-                    })
+                    }
                     new_keys.append(key)
-            if new_keys:
+            if new_keys and latest_due is not None:
+                due_items.append(latest_due)
                 sent.update(new_keys)
                 self.db.execute("UPDATE tasks SET sent_reminders_json=?, updated_at=? WHERE id=?",
                                 (json_dumps(sorted(sent)), utc_now(), row["id"]))
