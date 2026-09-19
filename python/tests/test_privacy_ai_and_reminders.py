@@ -96,8 +96,14 @@ def _call_provider():
 
 
 def test_openai_provider_rejects_missing_api_key():
-    with pytest.raises(AIUnavailableError, match="尚未配置 OpenAI API Key"):
+    with pytest.raises(AIUnavailableError, match="尚未配置 OpenAI API Key") as exc_info:
         OpenAIProvider("")
+    assert exc_info.value.reason == "missing_api_key"
+    assert exc_info.value.as_dict() == {
+        "code": "ai_unavailable",
+        "message": "尚未配置 OpenAI API Key",
+        "reason": "missing_api_key",
+    }
 
 
 def test_openai_provider_maps_http_errors(monkeypatch):
@@ -107,6 +113,7 @@ def test_openai_provider_maps_http_errors(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     with pytest.raises(AIUnavailableError, match="OpenAI API 返回 HTTP 401") as exc_info:
         _call_provider()
+    assert exc_info.value.reason == "http_401"
     assert "invalid_api_key" in str(exc_info.value)
     assert "sk-" not in str(exc_info.value)
 
@@ -116,23 +123,26 @@ def test_openai_provider_maps_rate_limit_and_missing_model(monkeypatch):
         raise HTTPError(request.full_url, 429, "Too Many Requests", hdrs=None, fp=BytesIO(b"rate limited"))
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    with pytest.raises(AIUnavailableError, match="OpenAI API 返回 HTTP 429"):
+    with pytest.raises(AIUnavailableError, match="OpenAI API 返回 HTTP 429") as rate_limited:
         _call_provider()
+    assert rate_limited.value.reason == "http_429"
 
     def missing_model(request, timeout):
         raise HTTPError(request.full_url, 404, "Not Found", hdrs=None, fp=BytesIO(b"model_not_found"))
 
     monkeypatch.setattr("urllib.request.urlopen", missing_model)
-    with pytest.raises(AIUnavailableError, match="OpenAI API 返回 HTTP 404"):
+    with pytest.raises(AIUnavailableError, match="OpenAI API 返回 HTTP 404") as missing:
         OpenAIProvider("test-key", model="not-a-real-model").structured(
             instructions="test", input_text="test", schema_name="test_schema", schema=SCHEMA,
         )
+    assert missing.value.reason == "http_404"
 
 
 def test_openai_provider_maps_network_and_invalid_payloads(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: (_ for _ in ()).throw(URLError("timed out")))
-    with pytest.raises(AIUnavailableError, match="无法连接 OpenAI API"):
+    with pytest.raises(AIUnavailableError, match="无法连接 OpenAI API") as network:
         _call_provider()
+    assert network.value.reason == "network"
 
     class EmptyResponse:
         def __enter__(self):
@@ -145,8 +155,9 @@ def test_openai_provider_maps_network_and_invalid_payloads(monkeypatch):
             return json.dumps({"output": []}).encode()
 
     monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: EmptyResponse())
-    with pytest.raises(AIUnavailableError, match="OpenAI API 响应中没有可用文本"):
+    with pytest.raises(AIUnavailableError, match="OpenAI API 响应中没有可用文本") as empty:
         _call_provider()
+    assert empty.value.reason == "empty_response"
 
     class InvalidJsonResponse:
         def __enter__(self):
@@ -159,8 +170,9 @@ def test_openai_provider_maps_network_and_invalid_payloads(monkeypatch):
             return json.dumps({"output": [{"content": [{"type": "output_text", "text": "not-json"}]}]}).encode()
 
     monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: InvalidJsonResponse())
-    with pytest.raises(AIUnavailableError, match="OpenAI API 未返回有效的结构化 JSON"):
+    with pytest.raises(AIUnavailableError, match="OpenAI API 未返回有效的结构化 JSON") as invalid:
         _call_provider()
+    assert invalid.value.reason == "invalid_json"
 
 
 def confirmed_activity(service: QingwuService):
@@ -187,11 +199,13 @@ def test_ai_draft_missing_fact_tokens_is_rejected(tmp_path: Path, monkeypatch):
                 return {"body": "活动将在大学生活动中心 203 举行，请按时参加。"}
 
         monkeypatch.setattr("qingwu_core.service.OpenAIProvider", FakeProvider)
-        with pytest.raises(ValidationError, match="遗漏事实引用节点"):
+        with pytest.raises(ValidationError, match="遗漏事实引用节点") as missing_tokens:
             service.draft_generate({
                 "affair_id": affair["id"], "document_id": "notice_full",
                 "use_ai": True, "api_key": "sk-test-not-real",
             })
+        assert missing_tokens.value.reason == "missing_fact_tokens"
+        assert missing_tokens.value.as_dict()["reason"] == "missing_fact_tokens"
         latest = service.affair_open({"id": affair["id"]})
         assert latest["drafts"] == []
         run = service.db.one("SELECT purpose, success, error_code, model FROM ai_runs WHERE affair_id=?", (affair["id"],))
@@ -214,14 +228,15 @@ def test_offline_draft_still_works_after_ai_failure(tmp_path: Path, monkeypatch)
                 self.model = model
 
             def structured(self, **kwargs):
-                raise AIUnavailableError("无法连接 OpenAI API：timed out")
+                raise AIUnavailableError("无法连接 OpenAI API：timed out", reason="network")
 
         monkeypatch.setattr("qingwu_core.service.OpenAIProvider", FailingProvider)
-        with pytest.raises(AIUnavailableError, match="无法连接 OpenAI API"):
+        with pytest.raises(AIUnavailableError, match="无法连接 OpenAI API") as failed:
             service.draft_generate({
                 "affair_id": affair["id"], "document_id": "notice_full",
                 "use_ai": True, "api_key": "sk-test-not-real",
             })
+        assert failed.value.reason == "network"
         assert service.affair_open({"id": affair["id"]})["drafts"] == []
 
         offline = service.draft_generate({"affair_id": affair["id"], "document_id": "notice_full"})
