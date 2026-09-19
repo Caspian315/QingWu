@@ -8,6 +8,9 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     host: "127.0.0.1",
+    watch: {
+      ignored: (path) => path.replace(/\\/g, "/").indexOf("src-tauri/target") !== -1,
+    },
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {
