@@ -424,7 +424,7 @@ class QingwuService:
                 validate_ai_body(body, required_tokens)
             except ValueError as exc:
                 self._record_ai(affair["id"], "draft.generate", provider.model, False, "missing_fact_tokens")
-                raise ValidationError(str(exc)) from exc
+                raise ValidationError(str(exc), reason="missing_fact_tokens") from exc
             self._record_ai(affair["id"], "draft.generate", provider.model, True)
             self.db.execute("UPDATE affairs SET ai_used=1, updated_at=? WHERE id=?", (utc_now(), affair["id"]))
         body = self._apply_locked_blocks(body, locked_blocks)

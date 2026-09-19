@@ -13,7 +13,7 @@ class OpenAIProvider:
 
     def __init__(self, api_key: str, model: str = "gpt-5.4-mini", timeout: int = 90):
         if not api_key:
-            raise AIUnavailableError("尚未配置 OpenAI API Key")
+            raise AIUnavailableError("尚未配置 OpenAI API Key", reason="missing_api_key")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
@@ -45,14 +45,16 @@ class OpenAIProvider:
                 result = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
-            raise AIUnavailableError(f"OpenAI API 返回 HTTP {exc.code}：{detail}") from exc
+            raise AIUnavailableError(
+                f"OpenAI API 返回 HTTP {exc.code}：{detail}", reason=f"http_{exc.code}",
+            ) from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            raise AIUnavailableError(f"无法连接 OpenAI API：{exc}") from exc
+            raise AIUnavailableError(f"无法连接 OpenAI API：{exc}", reason="network") from exc
         output_text = self._output_text(result)
         try:
             return json.loads(output_text)
         except json.JSONDecodeError as exc:
-            raise AIUnavailableError("OpenAI API 未返回有效的结构化 JSON") from exc
+            raise AIUnavailableError("OpenAI API 未返回有效的结构化 JSON", reason="invalid_json") from exc
 
     @staticmethod
     def _output_text(result: dict[str, Any]) -> str:
@@ -60,7 +62,7 @@ class OpenAIProvider:
             for content in output.get("content", []):
                 if content.get("type") == "output_text" and isinstance(content.get("text"), str):
                     return content["text"]
-        raise AIUnavailableError("OpenAI API 响应中没有可用文本")
+        raise AIUnavailableError("OpenAI API 响应中没有可用文本", reason="empty_response")
 
 
 def fact_extraction_schema(fact_definitions: list[dict[str, Any]]) -> dict[str, Any]:

@@ -3,8 +3,15 @@ class QingwuError(Exception):
 
     code = "qingwu_error"
 
+    def __init__(self, message: str, *, reason: str | None = None):
+        super().__init__(message)
+        self.reason = reason
+
     def as_dict(self) -> dict[str, object]:
-        return {"code": self.code, "message": str(self)}
+        payload: dict[str, object] = {"code": self.code, "message": str(self)}
+        if self.reason:
+            payload["reason"] = self.reason
+        return payload
 
 
 class ValidationError(QingwuError):
