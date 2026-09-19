@@ -32,8 +32,8 @@ GitHub Windows cargo check passed
 
 ## 当前验证边界
 
-- GitHub Actions 的 Windows runner 已通过 `cargo check`；当前开发机没有 Rust 工具链，因此尚未在本机执行 `tauri dev` 或 `tauri build`，也没有完成桌面运行与安装包验证。
-- 当前开发机只有 Python 3.11。本机生成的 sidecar 和 CLI 仅用于验证 PyInstaller 链路；正式打包脚本会拒绝非 Python 3.12 解释器，发布产物必须在 Python 3.12 环境重新构建。
+- GitHub Actions 和 Windows 开发机均已通过 `cargo check`，本机已完成 `tauri dev` 桌面联调；最终 `tauri build` 安装包推迟到 issue #17。
+- Python 3.12 sidecar 和 CLI 已按仓库脚本重建并记录文件大小与 SHA-256。
 - 尚未在无 Node.js、Python、Rust 的干净 Windows 10/11 x64 机器上验收 NSIS、MSI、便携包和 CLI。
 - 提醒矩阵已完成 Windows 11 开发桌面验证；最终安装包仍需在 issue #17 恢复后重复提醒冒烟测试。
 - 材料归档的磁盘空间不足场景仍有失败输出清理和中文提示问题，见 issue #7。
