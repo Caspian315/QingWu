@@ -2,13 +2,15 @@
 
 ## 自动检查
 
-- [ ] `python -m pytest`
+- [x] `python -m pytest`（Python 3.12 候选构建：23 passed）
 - [ ] `npm test`
 - [ ] `npm run build`
 - [ ] `cargo check --manifest-path src-tauri/Cargo.toml`
-- [ ] 三个内置模板通过 `qingwu template validate`
+- [x] 三个内置模板通过 `qingwu template validate`
 - [ ] PyInstaller sidecar 能在无 Python 的 Windows 10/11 x64 环境启动
 - [ ] NSIS/MSI、便携包和 CLI 计算 SHA-256
+
+Python 3.12 CLI 与 sidecar 的构建来源、验证结果和 SHA-256 见 [v0.1.0 Python 候选产物记录](v0.1.0-python-artifacts.md)。
 
 ## 端到端场景
 
