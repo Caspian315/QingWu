@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Facts } from "./App";
+import { Facts, Overview, StyleCards } from "./App";
 import { call } from "./lib/api";
-import type { Affair, FactField } from "./types";
+import type { Affair, FactField, StyleCard } from "./types";
 
 vi.mock("./lib/api", () => ({
   autostartStatus: vi.fn(async () => false),
@@ -126,5 +126,82 @@ describe("facts confirmation", () => {
       },
     }));
     await waitFor(() => expect(screen.getByText("当前所有已填写事实均已确认。")).toBeInTheDocument());
+  });
+});
+
+describe("affair overview", () => {
+  afterEach(cleanup);
+
+  it("labels task progress and counts only confirmed required facts", () => {
+    const affair = affairFixture();
+    affair.facts.activity_name = { ...affair.facts.activity_name, value: "示例活动", status: "confirmed" };
+    affair.facts.notes = { ...affair.facts.notes, value: "可选说明", status: "confirmed" };
+
+    render(<Overview affair={affair} progress={40} onNavigate={vi.fn()} />);
+
+    expect(screen.getByLabelText("任务进度 40%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /1 \/ 2 个必填事实/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /2 \/ 2 个必填事实/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("style card editor", () => {
+  beforeEach(() => mockedCall.mockReset());
+  afterEach(cleanup);
+
+  it("shows understandable fields and converts line-based phrases back to a style card", async () => {
+    const styleCard: StyleCard = {
+      id: "style_test",
+      name: "组织通知风格",
+      document_kind: "notice",
+      card: {
+        tone: "正式但不生硬",
+        greeting: "各位同学：",
+        paragraph_length: "short",
+        heading_style: "序号加短标题",
+        emoji_policy: "通知不用",
+        common_phrases: ["请各位同学注意", "感谢大家的配合"],
+        forbidden_phrases: ["速来", "家人们"],
+        sign_off: "组织落款",
+        punctuation: "中文全角标点",
+      },
+      confirmed: true,
+      sample_count: 3,
+      created_at: "2026-09-17T00:00:00Z",
+      updated_at: "2026-09-17T00:00:00Z",
+    };
+    const updated = {
+      ...styleCard,
+      card: { ...styleCard.card, common_phrases: ["请及时查看", "感谢配合"] },
+    };
+    mockedCall
+      .mockResolvedValueOnce([styleCard])
+      .mockResolvedValueOnce(updated)
+      .mockResolvedValueOnce([updated]);
+
+    render(<StyleCards show={vi.fn()} />);
+
+    expect(await screen.findByLabelText("语气风格")).toHaveValue("正式但不生硬");
+    expect(screen.getByLabelText("段落长度")).toHaveValue("short");
+    expect(screen.getByLabelText(/常用表达/)).toHaveValue("请各位同学注意\n感谢大家的配合");
+
+    fireEvent.change(screen.getByLabelText(/常用表达/), { target: { value: "请及时查看\n感谢配合" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认并启用风格" }));
+
+    await waitFor(() => expect(mockedCall).toHaveBeenCalledWith("style.confirm_card", {
+      id: "style_test",
+      card: {
+        tone: "正式但不生硬",
+        greeting: "各位同学：",
+        paragraph_length: "short",
+        heading_style: "序号加短标题",
+        emoji_policy: "通知不用",
+        common_phrases: ["请及时查看", "感谢配合"],
+        forbidden_phrases: ["速来", "家人们"],
+        sign_off: "组织落款",
+        punctuation: "中文全角标点",
+      },
+      delete_cache: true,
+    }));
   });
 });

@@ -10,7 +10,7 @@ use std::{
 use tauri::{
     menu::{Menu, MenuItem},
     plugin::PermissionState,
-    tray::TrayIconBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, State, WindowEvent,
 };
 use tauri_plugin_notification::NotificationExt;
@@ -184,6 +184,13 @@ fn start_reminder_loop(app: AppHandle, sidecar: SidecarState) {
     });
 }
 
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -214,8 +221,17 @@ pub fn run() {
                 app.default_window_icon().ok_or_else(|| std::io::Error::other("缺少应用图标"))?.clone(),
             )
                 .tooltip("轻务 · 本地事务提醒正在运行").menu(&menu).show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(event, TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    }) {
+                        show_main_window(tray.app_handle());
+                    }
+                })
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => { if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); } }
+                    "show" => show_main_window(app),
                     "quit" => app.exit(0),
                     _ => {}
                 }).build(app)?;
