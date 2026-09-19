@@ -50,6 +50,40 @@ const documentKindLabels: Record<string, string> = {
   recruitment: "招募推文",
 };
 
+export function formatAiErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (/OpenAI API\s*返回\s*HTTP\s*401\b/i.test(message)) {
+    return "当前 API Key 无效或已经失效。请到“设置”中重新保存有效的 API Key。";
+  }
+  if (/OpenAI API\s*返回\s*HTTP\s*429\b/i.test(message)) {
+    return "AI 请求过于频繁，或者当前 API 项目额度不足。请稍后重试，并检查 API 项目的额度。";
+  }
+  if (/OpenAI API\s*返回\s*HTTP\s*404\b/i.test(message)) {
+    return "当前模型不可用，或者模型 ID 填写不正确。请到“设置”中检查模型 ID。";
+  }
+  if (/OpenAI API\s*返回\s*HTTP\s*[45]\d{2}\b/i.test(message)) {
+    return "AI 服务暂时无法完成请求，本次结果没有保存。请稍后重试；如果重复出现，请联系开发者并提供错误发生时间。";
+  }
+  if (message.includes("尚未配置 OpenAI API Key") || message.includes("尚未在设置中保存 OpenAI API Key")) {
+    return "尚未配置 OpenAI API Key。请先到“设置”中保存 API Key，再重新尝试。";
+  }
+  if (/无法连接\s*OpenAI API|\btimeout\b|\btimed out\b|超时/i.test(message)) {
+    return "暂时无法连接 OpenAI。请检查网络或代理设置后重试；不使用 AI 也可以继续完成当前任务。";
+  }
+  if (message.includes("OpenAI API 响应中没有可用文本")) {
+    return "AI 没有返回可用内容，本次结果没有保存。请重新尝试；如果多次出现，请联系开发者检查 AI 响应。";
+  }
+  if (message.includes("OpenAI API 未返回有效的结构化 JSON")) {
+    return "AI 返回的内容格式异常，本次结果没有保存。请重新尝试；如果多次出现，请联系开发者检查结构化输出。";
+  }
+  if (message.includes("AI 返回的草稿遗漏事实引用节点")) {
+    return "AI 生成的文案缺少必要事实。为避免发布错误信息，本次草稿没有保存。你可以重试，或关闭 AI 后使用离线模板；如果重复出现，请联系开发者检查文案模板。";
+  }
+
+  return message;
+}
+
 function styleCardToForm(card: StyleCard["card"]): StyleCardForm {
   const text = (key: string, fallback = "") => typeof card[key] === "string" ? card[key] as string : fallback;
   const lines = (key: string) => Array.isArray(card[key]) ? (card[key] as string[]).join("\n") : "";
@@ -295,7 +329,7 @@ export function Facts({ affair, onChanged, show }: { affair: Affair; onChanged: 
     if (!source.trim()) return;
     setExtracting(true);
     try { await call("fact.extract", { affair_id: affair.id, source_text: source, use_saved_api_key: true, model: configuredModel(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }); await onChanged(); show("success", "候选事实已提取，请逐项核对后确认。"); }
-    catch (error) { show("error", error instanceof Error ? error.message : String(error)); }
+    catch (error) { show("error", formatAiErrorMessage(error)); }
     finally { setExtracting(false); }
   }
   const bulkHint = missingRequired.length
@@ -357,7 +391,7 @@ function Drafts({ affair, onChanged, show }: { affair: Affair; onChanged: () => 
   async function generate() {
     setGenerating(true);
     try { await call<Draft>("draft.generate", { affair_id: affair.id, document_id: selected, use_ai: useAI, use_saved_api_key: true, model: configuredModel(), preserve_locked_from: draft?.id }); await onChanged(); show("success", "已创建新文案版本；锁定段落和旧版本均已保留。"); }
-    catch (error) { show("error", error instanceof Error ? error.message : String(error)); }
+    catch (error) { show("error", formatAiErrorMessage(error)); }
     finally { setGenerating(false); }
   }
   async function saveManualVersion() {
@@ -419,7 +453,7 @@ export function StyleCards({ show }: { show: (kind: "success" | "error", text: s
     if (!active) return;
     setBusy(true);
     try { const generated = await call<StyleCard>("style.generate_card", { id: active.id, use_saved_api_key: true, model: configuredModel() }); await reload(generated.id); show("success", "AI 已提炼结构化风格；请编辑并人工确认。"); }
-    catch (error) { show("error", error instanceof Error ? error.message : String(error)); }
+    catch (error) { show("error", formatAiErrorMessage(error)); }
     finally { setBusy(false); }
   }
   async function confirm() {
