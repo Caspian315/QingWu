@@ -26,5 +26,9 @@ class ConflictError(QingwuError):
     code = "conflict"
 
 
+class ArchiveError(QingwuError):
+    code = "archive_error"
+
+
 class AIUnavailableError(QingwuError):
     code = "ai_unavailable"
