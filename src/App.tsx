@@ -8,7 +8,10 @@ import { autostartStatus, call, chooseArchivePath, chooseMaterialFiles, chooseMa
 import type { Affair, AffairCheck, AffairSummary, Draft, FactField, StyleCard, TemplateSummary } from "./types";
 
 type Tab = "overview" | "facts" | "drafts" | "style" | "timeline" | "materials" | "archive" | "settings";
-type Notice = { kind: "success" | "error"; text: string } | null;
+type NoticeAction = { label: string; onClick: () => void; tone?: "primary" | "secondary" };
+type Notice = { kind: "success" | "error"; text: string; actions?: NoticeAction[] } | null;
+type ShowNotice = (kind: "success" | "error", text: string, actions?: NoticeAction[]) => void;
+export type AiErrorActionSpec = { kind: "settings" | "retry" | "offline"; label: string };
 type StyleCardForm = {
   tone: string;
   greeting: string;
@@ -50,14 +53,36 @@ const documentKindLabels: Record<string, string> = {
   recruitment: "招募推文",
 };
 
-export function formatAiErrorMessage(error: unknown): string {
+function errorMessage(error: unknown): string {
   const payload = error && typeof error === "object" ? error as Record<string, unknown> : null;
-  const reason = typeof payload?.reason === "string" ? payload.reason : null;
-  const message = error instanceof Error
+  return error instanceof Error
     ? error.message
     : typeof payload?.message === "string"
       ? payload.message
       : String(error);
+}
+
+export function getAiErrorReason(error: unknown): string | null {
+  const payload = error && typeof error === "object" ? error as Record<string, unknown> : null;
+  if (typeof payload?.reason === "string") return payload.reason;
+
+  const message = errorMessage(error);
+  if (/OpenAI API\s*返回\s*HTTP\s*401\b/i.test(message)) return "http_401";
+  if (/OpenAI API\s*返回\s*HTTP\s*429\b/i.test(message)) return "http_429";
+  if (/OpenAI API\s*返回\s*HTTP\s*404\b/i.test(message)) return "http_404";
+  const httpStatus = message.match(/OpenAI API\s*返回\s*HTTP\s*([45]\d{2})\b/i)?.[1];
+  if (httpStatus) return `http_${httpStatus}`;
+  if (message.includes("尚未配置 OpenAI API Key") || message.includes("尚未在设置中保存 OpenAI API Key")) return "missing_api_key";
+  if (/无法连接\s*OpenAI API|\btimeout\b|\btimed out\b|超时/i.test(message)) return "network";
+  if (message.includes("OpenAI API 响应中没有可用文本")) return "empty_response";
+  if (message.includes("OpenAI API 未返回有效的结构化 JSON")) return "invalid_json";
+  if (message.includes("AI 返回的草稿遗漏事实引用节点")) return "missing_fact_tokens";
+  return null;
+}
+
+export function formatAiErrorMessage(error: unknown): string {
+  const reason = getAiErrorReason(error);
+  const message = errorMessage(error);
 
   if (reason === "missing_api_key") {
     return "尚未配置 OpenAI API Key。请先到“设置”中保存 API Key，再重新尝试。";
@@ -83,39 +108,49 @@ export function formatAiErrorMessage(error: unknown): string {
   if (reason === "missing_fact_tokens") {
     return "AI 生成的文案缺少必要事实。为避免发布错误信息，本次草稿没有保存。你可以重试，或关闭 AI 后使用离线模板；如果重复出现，请联系开发者检查文案模板。";
   }
-  if (reason?.startsWith("http_")) {
+  if (reason?.startsWith("http_") || reason === "service_error" || reason === "unknown") {
     return "AI 服务暂时无法完成请求，本次结果没有保存。请稍后重试；如果重复出现，请联系开发者并提供错误发生时间。";
-  }
-
-  if (/OpenAI API\s*返回\s*HTTP\s*401\b/i.test(message)) {
-    return "当前 API Key 无效或已经失效。请到“设置”中重新保存有效的 API Key。";
-  }
-  if (/OpenAI API\s*返回\s*HTTP\s*429\b/i.test(message)) {
-    return "AI 请求过于频繁，或者当前 API 项目额度不足。请稍后重试，并检查 API 项目的额度。";
-  }
-  if (/OpenAI API\s*返回\s*HTTP\s*404\b/i.test(message)) {
-    return "当前模型不可用，或者模型 ID 填写不正确。请到“设置”中检查模型 ID。";
-  }
-  if (/OpenAI API\s*返回\s*HTTP\s*[45]\d{2}\b/i.test(message)) {
-    return "AI 服务暂时无法完成请求，本次结果没有保存。请稍后重试；如果重复出现，请联系开发者并提供错误发生时间。";
-  }
-  if (message.includes("尚未配置 OpenAI API Key") || message.includes("尚未在设置中保存 OpenAI API Key")) {
-    return "尚未配置 OpenAI API Key。请先到“设置”中保存 API Key，再重新尝试。";
-  }
-  if (/无法连接\s*OpenAI API|\btimeout\b|\btimed out\b|超时/i.test(message)) {
-    return "暂时无法连接 OpenAI。请检查网络或代理设置后重试；不使用 AI 也可以继续完成当前任务。";
-  }
-  if (message.includes("OpenAI API 响应中没有可用文本")) {
-    return "AI 没有返回可用内容，本次结果没有保存。请重新尝试；如果多次出现，请联系开发者检查 AI 响应。";
-  }
-  if (message.includes("OpenAI API 未返回有效的结构化 JSON")) {
-    return "AI 返回的内容格式异常，本次结果没有保存。请重新尝试；如果多次出现，请联系开发者检查结构化输出。";
-  }
-  if (message.includes("AI 返回的草稿遗漏事实引用节点")) {
-    return "AI 生成的文案缺少必要事实。为避免发布错误信息，本次草稿没有保存。你可以重试，或关闭 AI 后使用离线模板；如果重复出现，请联系开发者检查文案模板。";
   }
 
   return message;
+}
+
+export function getAiErrorActionSpecs(error: unknown, allowOfflineTemplate = false): AiErrorActionSpec[] {
+  const reason = getAiErrorReason(error);
+  if (reason === "missing_api_key" || reason === "http_401") {
+    return [{ kind: "settings", label: "前往设置" }];
+  }
+  if (reason === "http_404") {
+    return [{ kind: "settings", label: "检查模型设置" }];
+  }
+
+  const canRetry = reason === "http_429" || reason === "network" || reason === "empty_response"
+    || reason === "invalid_json" || reason === "missing_fact_tokens" || reason === "service_error"
+    || reason === "unknown" || Boolean(reason?.startsWith("http_"));
+  if (!canRetry) return [];
+
+  const actions: AiErrorActionSpec[] = [{ kind: "retry", label: "重新尝试" }];
+  if (reason === "missing_fact_tokens" && allowOfflineTemplate) {
+    actions.push({ kind: "offline", label: "使用离线模板" });
+  }
+  return actions;
+}
+
+function aiErrorActions(error: unknown, callbacks: {
+  retry?: () => void;
+  openSettings?: () => void;
+  useOfflineTemplate?: () => void;
+}): NoticeAction[] {
+  return getAiErrorActionSpecs(error, Boolean(callbacks.useOfflineTemplate)).flatMap((spec) => {
+    const onClick = spec.kind === "settings" ? callbacks.openSettings
+      : spec.kind === "offline" ? callbacks.useOfflineTemplate
+        : callbacks.retry;
+    return onClick ? [{ label: spec.label, onClick, tone: spec.kind === "offline" ? "secondary" : "primary" }] : [];
+  });
+}
+
+function showAiError(show: ShowNotice, error: unknown, callbacks: Parameters<typeof aiErrorActions>[1]) {
+  show("error", formatAiErrorMessage(error), aiErrorActions(error, callbacks));
 }
 
 function styleCardToForm(card: StyleCard["card"]): StyleCardForm {
@@ -155,6 +190,21 @@ function formatDate(value?: string | null) {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
+export function NoticeToast({ notice, onDismiss }: { notice: Exclude<Notice, null>; onDismiss: () => void }) {
+  return (
+    <div className={`toast ${notice.kind}`} role={notice.kind === "error" ? "alert" : "status"}>
+      <span className="toast-icon">{notice.kind === "success" ? <CheckCircle2 /> : <CircleAlert />}</span>
+      <div className="toast-content">
+        <span className="toast-message">{notice.text}</span>
+        {Boolean(notice.actions?.length) && <div className="toast-actions">
+          {notice.actions?.map((action) => <button type="button" className={`toast-action ${action.tone ?? "primary"}`} key={action.label} onClick={() => { onDismiss(); action.onClick(); }}>{action.label}</button>)}
+        </div>}
+      </div>
+      <button type="button" className="toast-close" aria-label="关闭提示" onClick={onDismiss}><X size={16} /></button>
+    </div>
+  );
+}
+
 function App() {
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [affairs, setAffairs] = useState<AffairSummary[]>([]);
@@ -164,11 +214,29 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
+  const noticeTimer = useRef<number | null>(null);
 
-  const show = (kind: "success" | "error", text: string) => {
-    setNotice({ kind, text });
-    window.setTimeout(() => setNotice(null), 4200);
-  };
+  const dismissNotice = useCallback(() => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = null;
+    setNotice(null);
+  }, []);
+
+  const show = useCallback<ShowNotice>((kind, text, actions = []) => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = null;
+    setNotice({ kind, text, actions });
+    if (actions.length === 0) {
+      noticeTimer.current = window.setTimeout(() => {
+        noticeTimer.current = null;
+        setNotice(null);
+      }, 4200);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+  }, []);
 
   const refreshAffairs = useCallback(async () => {
     const list = await call<AffairSummary[]>("affair.list");
@@ -251,9 +319,9 @@ function App() {
           </nav>
           <div className="content-area">
             {activeTab === "overview" && <Overview affair={current} progress={progress} onNavigate={setActiveTab} />}
-            {activeTab === "facts" && <Facts affair={current} onChanged={refreshCurrent} show={show} />}
-            {activeTab === "drafts" && <Drafts affair={current} onChanged={refreshCurrent} show={show} />}
-            {activeTab === "style" && <StyleCards show={show} />}
+            {activeTab === "facts" && <Facts affair={current} onChanged={refreshCurrent} show={show} onOpenSettings={() => setActiveTab("settings")} />}
+            {activeTab === "drafts" && <Drafts affair={current} onChanged={refreshCurrent} show={show} onOpenSettings={() => setActiveTab("settings")} />}
+            {activeTab === "style" && <StyleCards show={show} onOpenSettings={() => setActiveTab("settings")} />}
             {activeTab === "timeline" && <Timeline affair={current} onChanged={refreshCurrent} show={show} />}
             {activeTab === "materials" && <div className="page-stack"><Materials affair={current} onChanged={refreshCurrent} show={show} />{current.template_id === "material-collection" && <RecipientProgress affair={current} onChanged={refreshCurrent} show={show} />}</div>}
             {activeTab === "archive" && <ArchivePanel affair={current} show={show} />}
@@ -263,7 +331,7 @@ function App() {
       </main>
 
       {createOpen && <CreateDialog templates={templates} busy={busy} onClose={() => setCreateOpen(false)} onCreate={createAffair} />}
-      {notice && <div className={`toast ${notice.kind}`}><span>{notice.kind === "success" ? <CheckCircle2 /> : <CircleAlert />}</span>{notice.text}</div>}
+      {notice && <NoticeToast notice={notice} onDismiss={dismissNotice} />}
       {busy && <div className="busy-line" />}
     </div>
   );
@@ -289,7 +357,7 @@ export function Overview({ affair, progress, onNavigate }: { affair: Affair; pro
   return <div className="page-stack"><section className="hero-card"><div><p className="kicker">{affair.template.title}</p><h2>{affair.title}</h2><p>{affair.template.description}</p></div><div className="progress-ring" aria-label={`任务进度 ${progress}%`} style={{ "--progress": `${progress * 3.6}deg` } as CSSProperties}><span><strong>{progress}%</strong><small>任务进度</small></span></div></section><div className="stat-grid"><button className="stat-card" onClick={() => onNavigate("facts")}><ClipboardList /><span><strong>{confirmedRequired}</strong> / {required} 个必填事实</span><small>点击继续确认</small></button><button className="stat-card" onClick={() => onNavigate("drafts")}><FileText /><span><strong>{readyDrafts}</strong> 篇可复制文案</span><small>{affair.drafts.length} 篇已有草稿</small></button><button className="stat-card" onClick={() => onNavigate("timeline")}><Clock3 /><span><strong>{affair.tasks.filter((task) => task.completed).length}</strong> / {affair.tasks.length} 项待办完成</span><small>下一项：{nextTask?.title ?? "全部完成"}</small></button><button className="stat-card" onClick={() => onNavigate("materials")}><FolderInput /><span><strong>{affair.materials.length}</strong> 份材料</span><small>检查槽位与文件状态</small></button></div><section className="panel"><div className="panel-head"><div><span className="eyebrow">推荐下一步</span><h3>{confirmedRequired < required ? "先把事实底稿确认完整" : affair.drafts.length === 0 ? "基于事实生成第一份通知" : nextTask ? nextTask.title : "检查并导出归档"}</h3></div><button className="primary" onClick={() => onNavigate(confirmedRequired < required ? "facts" : affair.drafts.length === 0 ? "drafts" : nextTask ? "timeline" : "archive")}>继续处理<ChevronRight size={17} /></button></div><p className="muted">事实变化时，轻务只会让引用相关字段的草稿过期；旧版本会继续保留。</p></section></div>;
 }
 
-export function Facts({ affair, onChanged, show }: { affair: Affair; onChanged: () => Promise<void>; show: (kind: "success" | "error", text: string) => void }) {
+export function Facts({ affair, onChanged, show, onOpenSettings }: { affair: Affair; onChanged: () => Promise<void>; show: ShowNotice; onOpenSettings?: () => void }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [source, setSource] = useState(affair.source_text || "");
   const [extracting, setExtracting] = useState(false);
@@ -363,7 +431,7 @@ export function Facts({ affair, onChanged, show }: { affair: Affair; onChanged: 
     if (!source.trim()) return;
     setExtracting(true);
     try { await call("fact.extract", { affair_id: affair.id, source_text: source, use_saved_api_key: true, model: configuredModel(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }); await onChanged(); show("success", "候选事实已提取，请逐项核对后确认。"); }
-    catch (error) { show("error", formatAiErrorMessage(error)); }
+    catch (error) { showAiError(show, error, { retry: () => void extract(), openSettings: onOpenSettings }); }
     finally { setExtracting(false); }
   }
   const bulkHint = missingRequired.length
@@ -408,7 +476,7 @@ export function Facts({ affair, onChanged, show }: { affair: Affair; onChanged: 
   );
 }
 
-function Drafts({ affair, onChanged, show }: { affair: Affair; onChanged: () => Promise<void>; show: (kind: "success" | "error", text: string) => void }) {
+export function Drafts({ affair, onChanged, show, onOpenSettings }: { affair: Affair; onChanged: () => Promise<void>; show: ShowNotice; onOpenSettings?: () => void }) {
   const [selected, setSelected] = useState(affair.template.documents[0]?.id ?? "");
   const [useAI, setUseAI] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -422,10 +490,16 @@ function Drafts({ affair, onChanged, show }: { affair: Affair; onChanged: () => 
     setLockedParagraphs((draft?.locked_blocks ?? []).map((block) => block.index));
     setEditing(false);
   }, [draft?.id]);
-  async function generate() {
+  async function generate(useAIOverride = useAI) {
     setGenerating(true);
-    try { await call<Draft>("draft.generate", { affair_id: affair.id, document_id: selected, use_ai: useAI, use_saved_api_key: true, model: configuredModel(), preserve_locked_from: draft?.id }); await onChanged(); show("success", "已创建新文案版本；锁定段落和旧版本均已保留。"); }
-    catch (error) { show("error", formatAiErrorMessage(error)); }
+    try { await call<Draft>("draft.generate", { affair_id: affair.id, document_id: selected, use_ai: useAIOverride, use_saved_api_key: true, model: configuredModel(), preserve_locked_from: draft?.id }); await onChanged(); show("success", "已创建新文案版本；锁定段落和旧版本均已保留。"); }
+    catch (error) {
+      showAiError(show, error, {
+        retry: () => void generate(useAIOverride),
+        openSettings: onOpenSettings,
+        useOfflineTemplate: () => { setUseAI(false); void generate(false); },
+      });
+    }
     finally { setGenerating(false); }
   }
   async function saveManualVersion() {
@@ -446,7 +520,7 @@ function Drafts({ affair, onChanged, show }: { affair: Affair; onChanged: () => 
   return <div className="draft-layout"><aside className="document-list"><span className="eyebrow">文案类型</span>{affair.template.documents.map((item) => { const existing = affair.drafts.find((draftItem) => draftItem.document_id === item.id); return <button key={item.id} className={selected === item.id ? "selected" : ""} onClick={() => setSelected(item.id)}><FileText size={17} /><span><strong>{item.title}</strong><small>{existing ? `v${existing.version} · ${draftStatus[existing.status]?.label}` : "尚未生成"}</small></span></button>; })}</aside><section className="panel draft-editor"><div className="panel-head"><div><span className="eyebrow">{document?.kind ?? "文案"}</span><h3>{document?.title ?? "选择文案"}</h3></div><div className="heading-actions">{draft && <button className="text-button" onClick={() => setEditing(!editing)}>{editing ? "取消编辑" : "手工修改"}</button>}{draft && <span className={`chip ${draftStatus[draft.status]?.tone}`}>{draftStatus[draft.status]?.label}</span>}</div></div>{draft ? <><div className={`draft-banner ${draft.status === "stale" || draft.status === "missing_facts" ? "alert" : ""}`}>{draft.status === "stale" ? "事实底稿已经变化。这份旧草稿被保留，但不能直接标记为可复制。" : draft.status === "missing_facts" ? "文案中仍有待填写字段。确认事实后重新生成。" : draft.status === "needs_review" ? "请人工检查措辞和事实，确认后再复制。" : "这份文案已经过人工确认。"}</div>{editing ? <div className="manual-editor"><textarea value={editedBody} onChange={(event) => setEditedBody(event.target.value)} /><span className="eyebrow">重新生成时保留这些段落</span><div className="paragraph-locks">{paragraphs.map((paragraph, index) => <label key={`${index}-${paragraph.slice(0, 8)}`}><input type="checkbox" checked={lockedParagraphs.includes(index)} onChange={(event) => setLockedParagraphs(event.target.checked ? [...lockedParagraphs, index] : lockedParagraphs.filter((value) => value !== index))} /><span>{paragraph.slice(0, 70) || "空段落"}</span></label>)}</div><button className="secondary" onClick={() => void saveManualVersion()}><Save size={16} />保存为新版本</button></div> : <pre className="draft-preview">{draft.rendered_body}</pre>}<div className="draft-meta"><span>基于 facts-v{draft.fact_version}</span><span>文案 v{draft.version}</span><span>{draft.ai_generated ? "AI 辅助" : "离线模板"}</span><span>锁定 {draft.locked_blocks?.length ?? 0} 段</span></div></> : <div className="empty-state"><MessageSquareText /><h4>还没有这类文案</h4><p>轻务会从同一份事实底稿读取时间、地点和联系人。</p></div>}<div className="editor-actions"><label className="switch-row"><input type="checkbox" checked={useAI} onChange={(event) => setUseAI(event.target.checked)} /><span>使用 AI 优化表达</span><small>关闭时使用确定性模板</small></label><div><button className="secondary" onClick={() => void generate()} disabled={!selected || generating}>{generating ? <LoaderCircle className="spin" /> : <RefreshCw size={16} />}{draft ? "生成新版本" : "生成草稿"}</button>{draft && <button className="secondary" onClick={() => void markReady()} disabled={draft.status === "stale" || draft.status === "missing_facts" || draft.status === "ready_to_copy"}><CheckCircle2 size={16} />确认可用</button>}<button className="primary" onClick={() => void copy()} disabled={!draft || draft.status !== "ready_to_copy"}><Copy size={16} />复制文案</button></div></div></section></div>;
 }
 
-export function StyleCards({ show }: { show: (kind: "success" | "error", text: string) => void }) {
+export function StyleCards({ show, onOpenSettings }: { show: ShowNotice; onOpenSettings?: () => void }) {
   const [cards, setCards] = useState<StyleCard[]>([]);
   const [active, setActive] = useState<StyleCard | null>(null);
   const [name, setName] = useState("组织通知风格");
@@ -487,7 +561,7 @@ export function StyleCards({ show }: { show: (kind: "success" | "error", text: s
     if (!active) return;
     setBusy(true);
     try { const generated = await call<StyleCard>("style.generate_card", { id: active.id, use_saved_api_key: true, model: configuredModel() }); await reload(generated.id); show("success", "AI 已提炼结构化风格；请编辑并人工确认。"); }
-    catch (error) { show("error", formatAiErrorMessage(error)); }
+    catch (error) { showAiError(show, error, { retry: () => void generate(), openSettings: onOpenSettings }); }
     finally { setBusy(false); }
   }
   async function confirm() {
