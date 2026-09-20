@@ -1,10 +1,13 @@
+import errno
 import json
 from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
 
-from qingwu_core.errors import ConflictError
+import qingwu_core.archive as archive_module
+import qingwu_core.materials as materials_module
+from qingwu_core.errors import ArchiveError, ConflictError
 from qingwu_core.service import QingwuService
 
 
@@ -131,6 +134,79 @@ def test_export_rejects_changed_source_and_renames_existing_zip(tmp_path: Path):
         with pytest.raises(ConflictError, match="导出时材料内容发生变化"):
             service.affair_export({"affair_id": affair["id"], "output": str(tmp_path / "changed.zip")})
         assert material.read_bytes() == PNG_BYTES + b"-changed"
+    finally:
+        service.close()
+
+
+def test_failed_archive_write_removes_partial_output_and_allows_retry(tmp_path: Path, monkeypatch):
+    service = QingwuService(db_path=tmp_path / "test.sqlite3")
+    try:
+        affair = service.affair_create({"template_id": "material-collection", "title": "磁盘空间测试"})
+        material = tmp_path / "虚构材料.png"
+        material.write_bytes(PNG_BYTES)
+        imported = service.material_import({"affair_id": affair["id"], "path": str(material)})["materials"][0]
+        service.material_assign({"id": imported["id"], "slot_id": "submissions"})
+
+        output = tmp_path / "out.zip"
+        output.write_bytes(b"existing-archive")
+        original_write = archive_module.zipfile.ZipFile.write
+
+        def fail_write(*args, **kwargs):
+            raise OSError(errno.ENOSPC, "simulated disk full")
+
+        monkeypatch.setattr(archive_module.zipfile.ZipFile, "write", fail_write)
+        with pytest.raises(ArchiveError) as exc_info:
+            service.affair_export({"affair_id": affair["id"], "output": str(output)})
+
+        assert exc_info.value.as_dict() == {
+            "code": "archive_error",
+            "message": "磁盘空间不足，归档未完成，未保留不完整的 ZIP 文件。",
+            "reason": "disk_full",
+        }
+        assert output.read_bytes() == b"existing-archive"
+        assert not (tmp_path / "out-2.zip").exists()
+        assert not list(tmp_path.glob(".out-2-*.tmp"))
+        assert material.read_bytes() == PNG_BYTES
+
+        monkeypatch.setattr(archive_module.zipfile.ZipFile, "write", original_write)
+        result = service.affair_export({"affair_id": affair["id"], "output": str(output)})
+        assert Path(result["path"]).name == "out-2.zip"
+        assert ZipFile(result["path"]).testzip() is None
+    finally:
+        service.close()
+
+
+def test_locked_source_returns_safe_structured_archive_error(tmp_path: Path, monkeypatch):
+    service = QingwuService(db_path=tmp_path / "test.sqlite3")
+    try:
+        affair = service.affair_create({"template_id": "material-collection", "title": "文件占用测试"})
+        material = tmp_path / "虚构占用材料.png"
+        material.write_bytes(PNG_BYTES)
+        imported = service.material_import({"affair_id": affair["id"], "path": str(material)})["materials"][0]
+        service.material_assign({"id": imported["id"], "slot_id": "submissions"})
+        original_sha256_file = archive_module.sha256_file
+
+        def locked_sha256_file(path: Path, *args, **kwargs):
+            if path == material:
+                error = PermissionError(errno.EACCES, "simulated sharing violation")
+                error.winerror = 32
+                raise error
+            return original_sha256_file(path, *args, **kwargs)
+
+        monkeypatch.setattr(archive_module, "sha256_file", locked_sha256_file)
+        monkeypatch.setattr(materials_module, "sha256_file", locked_sha256_file)
+        with pytest.raises(ArchiveError) as exc_info:
+            service.affair_export({"affair_id": affair["id"], "output": str(tmp_path / "locked.zip")})
+
+        payload = exc_info.value.as_dict()
+        assert payload == {
+            "code": "archive_error",
+            "message": "材料文件正在被其他程序使用，请关闭相关程序后重试。",
+            "reason": "file_in_use",
+        }
+        assert str(tmp_path) not in payload["message"]
+        assert not (tmp_path / "locked.zip").exists()
+        assert material.read_bytes() == PNG_BYTES
     finally:
         service.close()
 

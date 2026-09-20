@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .ai import STYLE_CARD_SCHEMA, OpenAIProvider, fact_extraction_schema
-from .archive import build_manifest, export_affair
+from .archive import archive_error_from_os, build_manifest, export_affair
 from .database import Database
 from .drafting import field_value, missing_required, render_body, validate_ai_body
 from .errors import ConflictError, NotFoundError, ValidationError
@@ -809,7 +809,10 @@ class QingwuService:
 
     def affair_export(self, params: dict[str, Any]) -> dict[str, Any]:
         affair = self.affair_open({"id": params.get("affair_id")})
-        check = self.affair_check({"affair_id": affair["id"]})
+        try:
+            check = self.affair_check({"affair_id": affair["id"]})
+        except OSError as error:
+            raise archive_error_from_os(error, reading_source=True) from error
         return export_affair(
             affair, check["issues"], str(params.get("output", "")), allow_warnings=bool(params.get("allow_warnings", True)),
         )

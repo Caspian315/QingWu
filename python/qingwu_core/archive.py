@@ -1,20 +1,56 @@
 from __future__ import annotations
 
+import errno
 import html
 import json
+import os
 import shutil
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
 
-from .errors import ConflictError, ValidationError
+from .errors import ArchiveError, ConflictError, ValidationError
 from .util import json_dumps, safe_relative_path, sha256_file, unique_path, utc_now
 
 
 def _safe_name(value: str, fallback: str = "未命名事务") -> str:
     result = "".join("_" if char in '<>:"/\\|?*' else char for char in value).strip(" .")
     return result or fallback
+
+
+def archive_error_from_os(error: OSError, *, reading_source: bool = False) -> ArchiveError:
+    winerror = getattr(error, "winerror", None)
+    if error.errno == errno.ENOSPC or winerror == 112:
+        return ArchiveError(
+            "磁盘空间不足，归档未完成，未保留不完整的 ZIP 文件。",
+            reason="disk_full",
+        )
+    if reading_source and (isinstance(error, PermissionError) or winerror in {32, 33}):
+        return ArchiveError(
+            "材料文件正在被其他程序使用，请关闭相关程序后重试。",
+            reason="file_in_use",
+        )
+    if reading_source:
+        return ArchiveError(
+            "无法读取材料文件，请确认文件仍然存在且可访问。",
+            reason="source_unavailable",
+        )
+    return ArchiveError(
+        "无法写入归档文件，请检查目标位置是否可用。",
+        reason="output_unavailable",
+    )
+
+
+def _remove_incomplete_archive(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        # Preserve the original failure; a locked temporary file may only become
+        # removable after the process exits.
+        pass
 
 
 def build_manifest(bundle: dict[str, Any], warnings: list[dict[str, Any]]) -> dict[str, Any]:
@@ -145,11 +181,14 @@ def export_affair(bundle: dict[str, Any], warnings: list[dict[str, Any]], output
     if blocking and not allow_warnings:
         raise ConflictError("事务仍有阻断问题，不能导出")
     output_path = Path(output).expanduser().resolve()
-    if output_path.suffix.lower() != ".zip":
-        output_path.mkdir(parents=True, exist_ok=True)
-        output_path = output_path / f"{_safe_name(bundle['title'])}.zip"
-    else:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if output_path.suffix.lower() != ".zip":
+            output_path.mkdir(parents=True, exist_ok=True)
+            output_path = output_path / f"{_safe_name(bundle['title'])}.zip"
+        else:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise archive_error_from_os(error) from error
     output_path = unique_path(output_path)
     manifest = build_manifest(bundle, warnings)
     template = bundle["template"]
@@ -165,7 +204,11 @@ def export_affair(bundle: dict[str, Any], warnings: list[dict[str, Any]], output
             source = Path(material["source_path"])
             if not source.is_file():
                 continue
-            if sha256_file(source) != material["sha256"]:
+            try:
+                source_hash = sha256_file(source)
+            except OSError as error:
+                raise archive_error_from_os(error, reading_source=True) from error
+            if source_hash != material["sha256"]:
                 raise ConflictError(f"导出时材料内容发生变化：{material['original_name']}")
             slot = material_slots.get(material.get("slot_id"))
             relative_dir = safe_relative_path(slot["output_path"]) if slot else Path("materials/待归类")
@@ -174,7 +217,10 @@ def export_affair(bundle: dict[str, Any], warnings: list[dict[str, Any]], output
             target_dir = root / relative_dir
             target_dir.mkdir(parents=True, exist_ok=True)
             target = unique_path(target_dir / _safe_name(material["original_name"], "material"))
-            shutil.copy2(source, target)
+            try:
+                shutil.copy2(source, target)
+            except OSError as error:
+                raise archive_error_from_os(error, reading_source=True) from error
             if sha256_file(target) != material["sha256"]:
                 raise ConflictError(f"复制后材料哈希不一致：{material['original_name']}")
             copied.append(str(target.relative_to(root)).replace("\\", "/"))
@@ -199,10 +245,25 @@ def export_affair(bundle: dict[str, Any], warnings: list[dict[str, Any]], output
             manifest = build_manifest(bundle, warnings)
             (root / "qingwu-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
             (root / "qingwu-checklist.html").write_text(checklist_html(manifest), encoding="utf-8")
-        with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-            for path in sorted(root.rglob("*")):
-                if path.is_file():
-                    archive.write(path, path.relative_to(root).as_posix())
+        incomplete_path = None
+        try:
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{output_path.stem}-",
+                suffix=".tmp",
+                dir=output_path.parent,
+            )
+            incomplete_path = Path(temporary_name)
+            os.close(descriptor)
+            with zipfile.ZipFile(incomplete_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+                for path in sorted(root.rglob("*")):
+                    if path.is_file():
+                        archive.write(path, path.relative_to(root).as_posix())
+            os.replace(incomplete_path, output_path)
+            incomplete_path = None
+        except OSError as error:
+            raise archive_error_from_os(error) from error
+        finally:
+            _remove_incomplete_archive(incomplete_path)
     return {
         "path": str(output_path), "sha256": sha256_file(output_path), "size_bytes": output_path.stat().st_size,
         "material_files": copied, "warning_count": len(warnings), "manifest": manifest,
