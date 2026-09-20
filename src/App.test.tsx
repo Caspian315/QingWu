@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Facts, formatAiErrorMessage, Overview, StyleCards } from "./App";
+import { Drafts, Facts, formatAiErrorMessage, getAiErrorActionSpecs, NoticeToast, Overview, StyleCards } from "./App";
 import { call } from "./lib/api";
 import type { Affair, FactField, StyleCard } from "./types";
 
@@ -62,6 +62,37 @@ describe("AI error messages", () => {
 
   it("keeps unrelated errors unchanged", () => {
     expect(formatAiErrorMessage(new Error("其他错误"))).toBe("其他错误");
+  });
+});
+
+describe("AI error actions", () => {
+  afterEach(cleanup);
+
+  it.each([
+    ["missing_api_key", false, ["前往设置"]],
+    ["http_401", false, ["前往设置"]],
+    ["http_404", false, ["检查模型设置"]],
+    ["http_429", false, ["重新尝试"]],
+    ["network", false, ["重新尝试"]],
+    ["empty_response", false, ["重新尝试"]],
+    ["invalid_json", false, ["重新尝试"]],
+    ["http_503", false, ["重新尝试"]],
+    ["missing_fact_tokens", true, ["重新尝试", "使用离线模板"]],
+    ["future_reason", false, []],
+  ])("maps %s to the expected actions", (reason, allowOfflineTemplate, labels) => {
+    expect(getAiErrorActionSpecs({ reason, message: "opaque" }, allowOfflineTemplate).map((action) => action.label)).toEqual(labels);
+  });
+
+  it("dismisses an actionable toast before running its action", () => {
+    const retry = vi.fn();
+    const dismiss = vi.fn();
+    render(<NoticeToast notice={{ kind: "error", text: "请求失败", actions: [{ label: "重新尝试", onClick: retry }] }} onDismiss={dismiss} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("请求失败");
+    fireEvent.click(screen.getByRole("button", { name: "重新尝试" }));
+
+    expect(dismiss).toHaveBeenCalledOnce();
+    expect(retry).toHaveBeenCalledOnce();
   });
 });
 
@@ -166,6 +197,40 @@ describe("facts confirmation", () => {
       },
     }));
     await waitFor(() => expect(screen.getByText("当前所有已填写事实均已确认。")).toBeInTheDocument());
+  });
+});
+
+describe("draft AI recovery", () => {
+  beforeEach(() => mockedCall.mockReset());
+  afterEach(cleanup);
+
+  it("regenerates with the offline template when AI omits fact tokens", async () => {
+    const affair = affairFixture();
+    affair.template.documents = [{ id: "notice_full", title: "完整群通知", kind: "notice", required_facts: [] }];
+    const show = vi.fn();
+    mockedCall
+      .mockRejectedValueOnce({ code: "validation_error", reason: "missing_fact_tokens", message: "草稿缺少事实引用" })
+      .mockResolvedValueOnce({});
+
+    render(<Drafts affair={affair} onChanged={vi.fn(async () => undefined)} show={show} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /使用 AI 优化表达/ }));
+    fireEvent.click(screen.getByRole("button", { name: "生成草稿" }));
+
+    await waitFor(() => expect(show).toHaveBeenCalledWith(
+      "error",
+      expect.stringContaining("本次草稿没有保存"),
+      expect.any(Array),
+    ));
+    await waitFor(() => expect(screen.getByRole("button", { name: "生成草稿" })).toBeEnabled());
+    const actions = show.mock.calls[0][2] as Array<{ label: string; onClick: () => void }>;
+    actions.find((action) => action.label === "使用离线模板")?.onClick();
+
+    await waitFor(() => expect(mockedCall).toHaveBeenLastCalledWith("draft.generate", expect.objectContaining({
+      affair_id: "affair_test",
+      document_id: "notice_full",
+      use_ai: false,
+    })));
+    expect(screen.getByRole("checkbox", { name: /使用 AI 优化表达/ })).not.toBeChecked();
   });
 });
 
